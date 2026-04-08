@@ -1,3 +1,3 @@
-export function fn() {
-  return "Hello, tsdown!";
-}
+export { openapiCodegen, renderGeneratedArtifacts } from "./plugin.ts";
+export type { HttpClientConfig, Options } from "./plugin.ts";
+export type { OpenAPISpec, OperationEntry } from "./normalization.ts";

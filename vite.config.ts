@@ -12,6 +12,9 @@ export default defineConfig({
       typeAware: true,
       typeCheck: true,
     },
+    ignorePatterns: ["example/output/**"],
   },
-  fmt: {},
+  fmt: {
+    ignorePatterns: ["example/output/**"],
+  },
 });

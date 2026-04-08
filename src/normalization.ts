@@ -1,0 +1,562 @@
+const HTTP_METHODS = ["get", "put", "post", "delete", "patch"] as const;
+
+export type HttpMethod = (typeof HTTP_METHODS)[number];
+export type ParameterLocation = "path" | "query" | "header" | "cookie";
+
+export interface OpenAPIParameter {
+  in: ParameterLocation;
+  name: string;
+  required?: boolean;
+  schema?: {
+    type?: string | string[];
+  };
+}
+
+export interface OpenAPIContent {
+  schema?: unknown;
+}
+
+export interface OpenAPIRequestBody {
+  content?: Record<string, OpenAPIContent>;
+  required?: boolean;
+}
+
+export interface OpenAPIResponse {
+  content?: Record<string, OpenAPIContent>;
+  description?: string;
+}
+
+export interface OpenAPIOperation {
+  operationId?: string;
+  parameters?: OpenAPIParameter[];
+  requestBody?: OpenAPIRequestBody;
+  responses?: Record<string, OpenAPIResponse>;
+  tags?: string[];
+}
+
+export type OpenAPIPathItem = Partial<Record<HttpMethod, OpenAPIOperation>>;
+
+export interface OpenAPISchema {
+  properties?: Record<string, unknown>;
+  type?: string;
+}
+
+export interface OpenAPISpec {
+  paths?: Record<string, OpenAPIPathItem>;
+  components?: { schemas?: Record<string, OpenAPISchema> };
+}
+
+export interface OperationEntry {
+  apiPath: string;
+  funcName: string;
+  group: string;
+  method: HttpMethod;
+  operation: OpenAPIOperation;
+  operationId: string;
+  strippedPath: string;
+}
+
+export interface NormalizedChannel {
+  present: boolean;
+  required: boolean;
+  typeExpr: string | null;
+}
+
+export interface NormalizedOperation {
+  bodyChannel: NormalizedChannel;
+  builderAlias: string;
+  entry: OperationEntry;
+  optionTypeName: string;
+  pathChannel: NormalizedChannel;
+  pathInvocationExpr: string;
+  queryChannel: NormalizedChannel;
+  requestFunction: string;
+  responseTypeExpr: string | null;
+  returnTypeExpr: string;
+}
+
+export interface ClientRenderModel {
+  operations: NormalizedOperation[];
+  needsSearchParamsHelper: boolean;
+  typeImports: string[];
+}
+
+interface NormalizationContext {
+  schemaAliasIndex: Map<string, string[]>;
+  schemaNames: Set<string>;
+}
+
+interface SuccessResponseInfo {
+  hasJsonBody: boolean;
+  statusKey: string;
+}
+
+export function buildClientRenderModelFromOperations(
+  operations: OperationEntry[],
+  spec: OpenAPISpec,
+  requestFunctionNames: { json: string; void: string } = {
+    json: "requestJson",
+    void: "requestVoid",
+  },
+): ClientRenderModel {
+  const context = buildNormalizationContext(spec);
+  const typeImports = new Set<string>();
+  const normalized = operations.map((entry) =>
+    normalizeOperation(entry, context, typeImports, requestFunctionNames),
+  );
+
+  return {
+    operations: normalized,
+    needsSearchParamsHelper: normalized.some((operation) => operation.queryChannel.present),
+    typeImports: [...typeImports].sort(),
+  };
+}
+
+export function collectOperations(
+  spec: OpenAPISpec,
+  pathPrefix = "/api/",
+  stripPrefix = true,
+): OperationEntry[] {
+  const apiPaths = Object.keys(spec.paths ?? {})
+    .filter((path) => path.startsWith(pathPrefix))
+    .sort();
+
+  if (apiPaths.length === 0) {
+    throw new Error(`No paths matching prefix "${pathPrefix}" found in openapi.json`);
+  }
+
+  const entries: OperationEntry[] = [];
+
+  for (const apiPath of apiPaths) {
+    const pathItem = spec.paths?.[apiPath];
+    if (!pathItem) continue;
+
+    for (const method of HTTP_METHODS) {
+      const operation = pathItem[method];
+      if (!operation?.operationId) continue;
+
+      const strippedPath = stripPrefix ? apiPath.replace(pathPrefix, "") : apiPath;
+      entries.push({
+        apiPath,
+        funcName: makeFuncName(method, apiPath, pathPrefix),
+        group: strippedPath.split("/")[0] ?? "misc",
+        method,
+        operation,
+        operationId: operation.operationId,
+        strippedPath,
+      });
+    }
+  }
+
+  return entries;
+}
+
+export function getEffectiveParametersByLocation(
+  entry: OperationEntry,
+  location: ParameterLocation,
+): OpenAPIParameter[] {
+  return (entry.operation.parameters ?? []).filter(
+    (parameter) => getEffectiveParameterLocation(entry.apiPath, parameter) === location,
+  );
+}
+
+export function warnOnParameterLocationMismatch(operations: OperationEntry[]): void {
+  for (const entry of operations) {
+    for (const parameter of entry.operation.parameters ?? []) {
+      const effectiveLocation = getEffectiveParameterLocation(entry.apiPath, parameter);
+      if (effectiveLocation === parameter.in) {
+        continue;
+      }
+
+      console.warn(
+        `[openapi-codegen] normalized parameter "${parameter.name}" for "${entry.operationId}" from ${parameter.in} to ${effectiveLocation}.`,
+      );
+    }
+  }
+}
+
+function buildNormalizationContext(spec: OpenAPISpec): NormalizationContext {
+  const schemaAliasIndex = new Map<string, string[]>();
+  const schemaNames = new Set<string>();
+
+  for (const [name, schema] of Object.entries(spec.components?.schemas ?? {})) {
+    schemaNames.add(name);
+
+    const props = Object.keys(schema.properties ?? {})
+      .sort()
+      .join(",");
+    if (!props) {
+      continue;
+    }
+
+    if (!schemaAliasIndex.has(props)) {
+      schemaAliasIndex.set(props, []);
+    }
+
+    schemaAliasIndex.get(props)?.push(name);
+  }
+
+  return {
+    schemaAliasIndex,
+    schemaNames,
+  };
+}
+
+function getParametersByLocation(
+  operation: OpenAPIOperation,
+  location: ParameterLocation,
+): OpenAPIParameter[] {
+  return (operation.parameters ?? []).filter((parameter) => parameter.in === location);
+}
+
+function hasRequiredChannel(parameters: OpenAPIParameter[]): boolean {
+  return parameters.some((parameter) => parameter.required);
+}
+
+function getJsonRequestBody(operation: OpenAPIOperation): OpenAPIContent | undefined {
+  const requestBody = operation.requestBody;
+  if (!requestBody) return undefined;
+
+  const jsonBody = requestBody.content?.["application/json"];
+  if (!jsonBody) {
+    throw new Error(
+      `Operation "${operation.operationId ?? "unknown"}" has a requestBody but no application/json content`,
+    );
+  }
+
+  return jsonBody;
+}
+
+function getSuccessResponseInfo(operation: OpenAPIOperation): SuccessResponseInfo {
+  const successResponses = Object.entries(operation.responses ?? {})
+    .filter(([statusKey]) => isSuccessStatus(statusKey))
+    .sort(([left], [right]) => Number(left) - Number(right));
+
+  if (successResponses.length === 0) {
+    throw new Error(
+      `Operation "${operation.operationId ?? "unknown"}" has no 2xx success response`,
+    );
+  }
+
+  const withJson = successResponses.find(([, response]) => response.content?.["application/json"]);
+  if (withJson) {
+    return {
+      hasJsonBody: true,
+      statusKey: withJson[0],
+    };
+  }
+
+  return {
+    hasJsonBody: false,
+    statusKey: successResponses[0][0],
+  };
+}
+
+function isSuccessStatus(statusKey: string): boolean {
+  const value = Number(statusKey);
+  return Number.isInteger(value) && value >= 200 && value < 300;
+}
+
+function formatStatusKey(statusKey: string): string {
+  return Number.isInteger(Number(statusKey)) ? statusKey : `'${statusKey}'`;
+}
+
+function getBuilderAlias(funcName: string): string {
+  return `build${capitalize(funcName)}Path`;
+}
+
+function getClientOptionTypeName(funcName: string): string {
+  return `${capitalize(funcName)}Options`;
+}
+
+function makeFuncName(method: HttpMethod, apiPath: string, pathPrefix = "/api/"): string {
+  const segments = apiPath.replace(pathPrefix, "").split("/");
+  const result: string[] = [];
+
+  for (const segment of segments) {
+    if (segment.startsWith("{")) {
+      const resource = segment.slice(1, -1).replace(/_id$/, "");
+      if (result.length > 0) {
+        result[result.length - 1] = resource;
+      }
+      continue;
+    }
+
+    result.push(segment);
+  }
+
+  const camelParts = result.map((segment, index) => {
+    const clean = segment.replace(/-([a-z])/g, (_, char: string) => char.toUpperCase());
+    return index === 0 ? clean : `${clean[0].toUpperCase()}${clean.slice(1)}`;
+  });
+  const baseName = camelParts.join("");
+  return `${method}${capitalize(baseName)}`;
+}
+
+function capitalize(value: string): string {
+  if (value.length === 0) return value;
+  return `${value[0].toUpperCase()}${value.slice(1)}`;
+}
+
+function getEffectiveParameterLocation(
+  apiPath: string,
+  parameter: OpenAPIParameter,
+): ParameterLocation {
+  if (parameter.in !== "path") {
+    return parameter.in;
+  }
+
+  return getTemplateParameterNames(apiPath).has(parameter.name) ? "path" : "query";
+}
+
+function getTemplateParameterNames(apiPath: string): Set<string> {
+  const matches = apiPath.match(/\{(\w+)\}/g) ?? [];
+  return new Set(matches.map((match) => match.slice(1, -1)));
+}
+
+function resolveParameterTypeExpression(
+  entry: OperationEntry,
+  context: NormalizationContext,
+  location: "path" | "query",
+  typeImports: Set<string>,
+): string {
+  const effectiveParameters = getEffectiveParametersByLocation(entry, location);
+  if (effectiveParameters.length === 0) {
+    return "never";
+  }
+
+  const alias = resolveAlias(
+    context,
+    effectiveParameters.map((parameter) => parameter.name),
+    entry.operation.tags?.[0],
+  );
+  if (alias) {
+    typeImports.add(alias);
+    return alias;
+  }
+
+  const rawParameters = getParametersByLocation(entry.operation, location);
+  if (hasSameParameterNames(rawParameters, effectiveParameters)) {
+    return `operations['${entry.operationId}']['parameters']['${location}']`;
+  }
+
+  return renderInlineParameterObject(effectiveParameters);
+}
+
+function normalizeOperation(
+  entry: OperationEntry,
+  context: NormalizationContext,
+  typeImports: Set<string>,
+  requestFunctionNames: { json: string; void: string },
+): NormalizedOperation {
+  const successResponse = getSuccessResponseInfo(entry.operation);
+  const builderAlias = getBuilderAlias(entry.funcName);
+  const pathChannel = normalizeParameterChannel(entry, context, "path", typeImports);
+  const queryChannel = normalizeParameterChannel(entry, context, "query", typeImports);
+  const bodyChannel = normalizeBodyChannel(entry, context, typeImports);
+  const responseTypeExpr = resolveResponseTypeExpression(
+    entry,
+    context,
+    typeImports,
+    successResponse,
+  );
+
+  return {
+    bodyChannel,
+    builderAlias,
+    entry,
+    optionTypeName: getClientOptionTypeName(entry.funcName),
+    pathChannel,
+    pathInvocationExpr: pathChannel.present ? `${builderAlias}(options.path)` : `${builderAlias}()`,
+    queryChannel,
+    requestFunction: responseTypeExpr ? requestFunctionNames.json : requestFunctionNames.void,
+    responseTypeExpr,
+    returnTypeExpr: responseTypeExpr ? `Promise<${responseTypeExpr}>` : "Promise<void>",
+  };
+}
+
+function normalizeParameterChannel(
+  entry: OperationEntry,
+  context: NormalizationContext,
+  location: "path" | "query",
+  typeImports: Set<string>,
+): NormalizedChannel {
+  const parameters = getEffectiveParametersByLocation(entry, location);
+  if (parameters.length === 0) {
+    return {
+      present: false,
+      required: false,
+      typeExpr: null,
+    };
+  }
+
+  return {
+    present: true,
+    required: hasRequiredChannel(parameters),
+    typeExpr: resolveParameterTypeExpression(entry, context, location, typeImports),
+  };
+}
+
+function normalizeBodyChannel(
+  entry: OperationEntry,
+  context: NormalizationContext,
+  typeImports: Set<string>,
+): NormalizedChannel {
+  const typeExpr = resolveRequestBodyTypeExpression(entry, context, typeImports);
+  if (!typeExpr) {
+    return {
+      present: false,
+      required: false,
+      typeExpr: null,
+    };
+  }
+
+  return {
+    present: true,
+    required: entry.operation.requestBody?.required !== false,
+    typeExpr,
+  };
+}
+
+function resolveRequestBodyTypeExpression(
+  entry: OperationEntry,
+  context: NormalizationContext,
+  typeImports: Set<string>,
+): string | null {
+  const jsonBody = getJsonRequestBody(entry.operation);
+  if (!jsonBody) {
+    return null;
+  }
+
+  const alias = resolveSchemaAlias(context, jsonBody.schema, typeImports);
+  if (alias) {
+    return alias;
+  }
+
+  return `operations['${entry.operationId}']['requestBody']['content']['application/json']`;
+}
+
+function resolveResponseTypeExpression(
+  entry: OperationEntry,
+  context: NormalizationContext,
+  typeImports: Set<string>,
+  successResponse: SuccessResponseInfo,
+): string | null {
+  if (!successResponse.hasJsonBody) {
+    return null;
+  }
+
+  const response = entry.operation.responses?.[successResponse.statusKey];
+  const jsonContent = response?.content?.["application/json"];
+  const alias = resolveSchemaAlias(context, jsonContent?.schema, typeImports);
+  if (alias) {
+    return alias;
+  }
+
+  return `operations['${entry.operationId}']['responses'][${formatStatusKey(
+    successResponse.statusKey,
+  )}]['content']['application/json']`;
+}
+
+function hasSameParameterNames(left: OpenAPIParameter[], right: OpenAPIParameter[]): boolean {
+  if (left.length !== right.length) {
+    return false;
+  }
+
+  const leftNames = left.map((parameter) => parameter.name).sort();
+  const rightNames = right.map((parameter) => parameter.name).sort();
+  return leftNames.every((name, index) => name === rightNames[index]);
+}
+
+function resolveAlias(
+  context: NormalizationContext,
+  parameterNames: string[],
+  tag?: string,
+): string | undefined {
+  const key = [...parameterNames].sort().join(",");
+  const candidates = context.schemaAliasIndex.get(key);
+  if (!candidates || candidates.length === 0) {
+    return undefined;
+  }
+
+  if (candidates.length === 1) {
+    return candidates[0];
+  }
+
+  if (tag) {
+    const singularTag = tag.replace(/s$/, "");
+    const prefix = `${singularTag[0]?.toUpperCase() ?? ""}${singularTag.slice(1)}`;
+    const match = candidates.find((candidate) => candidate.startsWith(prefix));
+    if (match) {
+      return match;
+    }
+  }
+
+  return candidates[0];
+}
+
+function resolveSchemaAlias(
+  context: NormalizationContext,
+  schema: unknown,
+  typeImports: Set<string>,
+): string | undefined {
+  const ref = readSchemaRef(schema);
+  if (!ref) {
+    return undefined;
+  }
+
+  const schemaName = ref.split("/").pop();
+  if (!schemaName || !context.schemaNames.has(schemaName)) {
+    return undefined;
+  }
+
+  typeImports.add(schemaName);
+  return schemaName;
+}
+
+function readSchemaRef(schema: unknown): string | undefined {
+  if (!schema || typeof schema !== "object") {
+    return undefined;
+  }
+
+  const maybeRef = (schema as { $ref?: unknown }).$ref;
+  return typeof maybeRef === "string" ? maybeRef : undefined;
+}
+
+function renderInlineParameterObject(parameters: OpenAPIParameter[]): string {
+  const properties = parameters.map((parameter) => {
+    const optionalMarker = parameter.required ? "" : "?";
+    return `${parameter.name}${optionalMarker}: ${renderPrimitiveSchemaType(parameter.schema)}`;
+  });
+
+  return `{ ${properties.join("; ")} }`;
+}
+
+function renderPrimitiveSchemaType(schema: OpenAPIParameter["schema"]): string {
+  const type = schema?.type;
+  if (!type) {
+    return "unknown";
+  }
+
+  if (Array.isArray(type)) {
+    return type.map((memberType) => mapPrimitiveType(memberType)).join(" | ");
+  }
+
+  return mapPrimitiveType(type);
+}
+
+function mapPrimitiveType(type: string): string {
+  switch (type) {
+    case "integer":
+    case "number":
+      return "number";
+    case "boolean":
+      return "boolean";
+    case "null":
+      return "null";
+    case "string":
+      return "string";
+    default:
+      return "unknown";
+  }
+}

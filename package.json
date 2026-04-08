@@ -1,7 +1,14 @@
 {
   "name": "vite-plugin-openapi-codegen",
   "version": "0.0.0",
-  "description": "A starter for creating a TypeScript package.",
+  "description": "Vite plugin that generates typed API clients from OpenAPI specifications",
+  "keywords": [
+    "codegen",
+    "openapi",
+    "typescript",
+    "vite",
+    "vite-plugin"
+  ],
   "homepage": "https://github.com/author/library#readme",
   "bugs": {
     "url": "https://github.com/author/library/issues"
@@ -30,12 +37,18 @@
     "check": "vp check",
     "prepublishOnly": "vp run build"
   },
+  "dependencies": {
+    "openapi-typescript": "^7.13.0",
+    "typescript": ">=5.0.0"
+  },
   "devDependencies": {
     "@types/node": "^25.5.0",
     "@typescript/native-preview": "7.0.0-dev.20260328.1",
     "bumpp": "^11.0.1",
-    "typescript": "^6.0.2",
     "vite-plus": "^0.1.14"
+  },
+  "peerDependencies": {
+    "vite-plus": ">=0.1.0"
   },
   "overrides": {
     "vite": "npm:@voidzero-dev/vite-plus-core@latest",

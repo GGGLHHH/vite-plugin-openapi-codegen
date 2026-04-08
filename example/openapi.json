@@ -1,0 +1,638 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Example API",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/api/health": {
+      "get": {
+        "operationId": "health_check",
+        "tags": ["system"],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/HealthResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/login": {
+      "post": {
+        "operationId": "login",
+        "tags": ["auth"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/LoginRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Authenticated",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/AuthResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/logout": {
+      "post": {
+        "operationId": "logout",
+        "tags": ["auth"],
+        "responses": {
+          "204": { "description": "Logged out" }
+        }
+      }
+    },
+    "/api/users": {
+      "get": {
+        "operationId": "list_users",
+        "tags": ["users"],
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "integer" }
+          },
+          {
+            "name": "per_page",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "integer" }
+          },
+          {
+            "name": "role",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string", "enum": ["admin", "user", "guest"] }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/UserListResponse" }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "create_user",
+        "tags": ["users"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/CreateUserRequest" }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/UserResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/users/{user_id}": {
+      "get": {
+        "operationId": "get_user",
+        "tags": ["users"],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "format": "uuid" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/UserResponse" }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "operationId": "update_user",
+        "tags": ["users"],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "format": "uuid" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/UpdateUserRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/UserResponse" }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "operationId": "patch_user",
+        "tags": ["users"],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "format": "uuid" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/PatchUserRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Patched",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/UserResponse" }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "delete_user",
+        "tags": ["users"],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "format": "uuid" }
+          }
+        ],
+        "responses": {
+          "204": { "description": "Deleted" }
+        }
+      }
+    },
+    "/api/users/{user_id}/posts": {
+      "get": {
+        "operationId": "list_user_posts",
+        "tags": ["posts"],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "format": "uuid" }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string", "enum": ["draft", "published", "archived"] }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/PostListResponse" }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "create_post",
+        "tags": ["posts"],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "format": "uuid" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/CreatePostRequest" }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/PostResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/users/{user_id}/posts/{post_id}": {
+      "get": {
+        "operationId": "get_post",
+        "tags": ["posts"],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "format": "uuid" }
+          },
+          {
+            "name": "post_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "format": "uuid" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/PostResponse" }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "delete_post",
+        "tags": ["posts"],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "format": "uuid" }
+          },
+          {
+            "name": "post_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "format": "uuid" }
+          }
+        ],
+        "responses": {
+          "204": { "description": "Deleted" }
+        }
+      }
+    },
+    "/api/search": {
+      "get": {
+        "operationId": "search",
+        "tags": ["search"],
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "type",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string", "enum": ["user", "post", "all"] }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "integer", "default": 20 }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/SearchResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/uploads": {
+      "post": {
+        "operationId": "create_upload",
+        "tags": ["uploads"],
+        "parameters": [
+          {
+            "name": "notify",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "boolean" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/CreateUploadRequest" }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/UploadResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/orders/{order_id}/items/{item_id}/review": {
+      "post": {
+        "operationId": "create_item_review",
+        "tags": ["orders"],
+        "parameters": [
+          {
+            "name": "order_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "item_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "draft",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "boolean" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/ReviewRequest" }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ReviewResponse" }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AuthResponse": {
+        "type": "object",
+        "required": ["token", "expires_at"],
+        "properties": {
+          "token": { "type": "string" },
+          "expires_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "CreatePostRequest": {
+        "type": "object",
+        "required": ["title", "body"],
+        "properties": {
+          "title": { "type": "string", "maxLength": 200 },
+          "body": { "type": "string" },
+          "tags": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        }
+      },
+      "CreateUploadRequest": {
+        "type": "object",
+        "required": ["filename", "content_type", "size"],
+        "properties": {
+          "filename": { "type": "string" },
+          "content_type": { "type": "string" },
+          "size": { "type": "integer" }
+        }
+      },
+      "CreateUserRequest": {
+        "type": "object",
+        "required": ["email", "name"],
+        "properties": {
+          "email": { "type": "string", "format": "email" },
+          "name": { "type": "string" },
+          "role": { "type": "string", "enum": ["admin", "user", "guest"], "default": "user" }
+        }
+      },
+      "HealthResponse": {
+        "type": "object",
+        "required": ["status", "version"],
+        "properties": {
+          "status": { "type": "string", "enum": ["ok", "degraded"] },
+          "version": { "type": "string" }
+        }
+      },
+      "LoginRequest": {
+        "type": "object",
+        "required": ["email", "password"],
+        "properties": {
+          "email": { "type": "string", "format": "email" },
+          "password": { "type": "string", "minLength": 8 }
+        }
+      },
+      "OrderItemReviewPath": {
+        "type": "object",
+        "required": ["order_id", "item_id"],
+        "properties": {
+          "order_id": { "type": "string" },
+          "item_id": { "type": "string" }
+        }
+      },
+      "PaginationMeta": {
+        "type": "object",
+        "required": ["page", "per_page", "total"],
+        "properties": {
+          "page": { "type": "integer" },
+          "per_page": { "type": "integer" },
+          "total": { "type": "integer" }
+        }
+      },
+      "PatchUserRequest": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "role": { "type": "string", "enum": ["admin", "user", "guest"] }
+        }
+      },
+      "PostListResponse": {
+        "type": "object",
+        "required": ["items", "pagination"],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/PostResponse" }
+          },
+          "pagination": { "$ref": "#/components/schemas/PaginationMeta" }
+        }
+      },
+      "PostResponse": {
+        "type": "object",
+        "required": ["id", "title", "body", "status", "created_at"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "title": { "type": "string" },
+          "body": { "type": "string" },
+          "status": { "type": "string", "enum": ["draft", "published", "archived"] },
+          "tags": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "created_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "ReviewRequest": {
+        "type": "object",
+        "required": ["rating"],
+        "properties": {
+          "rating": { "type": "integer", "minimum": 1, "maximum": 5 },
+          "comment": { "type": "string" }
+        }
+      },
+      "ReviewResponse": {
+        "type": "object",
+        "required": ["id", "rating", "created_at"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "rating": { "type": "integer" },
+          "comment": { "type": "string" },
+          "created_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "SearchResponse": {
+        "type": "object",
+        "required": ["results", "total"],
+        "properties": {
+          "results": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["type", "id", "title"],
+              "properties": {
+                "type": { "type": "string" },
+                "id": { "type": "string" },
+                "title": { "type": "string" }
+              }
+            }
+          },
+          "total": { "type": "integer" }
+        }
+      },
+      "UpdateUserRequest": {
+        "type": "object",
+        "required": ["email", "name"],
+        "properties": {
+          "email": { "type": "string", "format": "email" },
+          "name": { "type": "string" },
+          "role": { "type": "string", "enum": ["admin", "user", "guest"] }
+        }
+      },
+      "UploadResponse": {
+        "type": "object",
+        "required": ["id", "url", "expires_at"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "url": { "type": "string", "format": "uri" },
+          "expires_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "UserListResponse": {
+        "type": "object",
+        "required": ["items", "pagination"],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/UserResponse" }
+          },
+          "pagination": { "$ref": "#/components/schemas/PaginationMeta" }
+        }
+      },
+      "UserPath": {
+        "type": "object",
+        "required": ["user_id"],
+        "properties": {
+          "user_id": { "type": "string", "format": "uuid" }
+        }
+      },
+      "UserPostPath": {
+        "type": "object",
+        "required": ["user_id", "post_id"],
+        "properties": {
+          "user_id": { "type": "string", "format": "uuid" },
+          "post_id": { "type": "string", "format": "uuid" }
+        }
+      },
+      "UserResponse": {
+        "type": "object",
+        "required": ["id", "email", "name", "role", "created_at"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "email": { "type": "string", "format": "email" },
+          "name": { "type": "string" },
+          "role": { "type": "string", "enum": ["admin", "user", "guest"] },
+          "created_at": { "type": "string", "format": "date-time" }
+        }
+      }
+    }
+  }
+}
