@@ -1,6 +1,6 @@
 {
   "name": "vite-plugin-openapi-codegen",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "description": "Vite plugin that generates typed API clients and route builders from OpenAPI specs",
   "keywords": [
     "api-client",
