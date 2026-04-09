@@ -45,7 +45,7 @@ jobs:
           fi
 
       - name: Build package
-        run: vp run build
+        run: ./node_modules/.bin/vp run build
 
       - name: Publish package
         env:
