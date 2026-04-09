@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 
 import type { Plugin, ResolvedConfig } from "vite-plus";
 
-import { renderApiSource, renderClientSource, renderTypesSource } from "./ast.ts";
+import { renderApiSource, renderClientSource } from "./ast.ts";
 import type { NormalizedChannel, OpenAPISpec, OperationEntry } from "./normalization.ts";
 import {
   buildClientRenderModelFromOperations,
@@ -47,8 +47,6 @@ export interface Options {
   stripPrefix?: boolean;
   /** HTTP client configuration */
   httpClient?: HttpClientConfig;
-  /** Legacy type aliases for types.ts: { OldName: 'NewName' } */
-  legacyAliases?: Record<string, string>;
 }
 
 const GENERATED_HEADER = [
@@ -59,7 +57,6 @@ const GENERATED_HEADER = [
 interface GeneratedArtifacts {
   api: string;
   client: string;
-  types: string;
 }
 
 async function generateApiTypes(inputPath: string, outputDir: string): Promise<void> {
@@ -70,15 +67,6 @@ async function generateApiTypes(inputPath: string, outputDir: string): Promise<v
     resolve(outputDir, "api-types.d.ts"),
     `${GENERATED_HEADER.join("\n")}\n\n${contents}`,
   );
-}
-
-function renderTypesBarrel(spec: OpenAPISpec, legacyAliases?: Record<string, string>): string {
-  const schemaNames = Object.keys(spec.components?.schemas ?? {}).sort();
-  if (schemaNames.length === 0) {
-    throw new Error("No schemas found in openapi.json");
-  }
-
-  return renderTypesSource(schemaNames, legacyAliases, GENERATED_HEADER);
 }
 
 function createApiEntries(
@@ -109,7 +97,6 @@ function createClientRenderModel(model: {
     responseTypeExpr: string | null;
     returnTypeExpr: string;
   }>;
-  typeImports: string[];
 }) {
   return {
     needsSearchParamsHelper: model.needsSearchParamsHelper,
@@ -127,13 +114,12 @@ function createClientRenderModel(model: {
       responseTypeExpr: operation.responseTypeExpr,
       returnTypeExpr: operation.returnTypeExpr,
     })),
-    typeImports: model.typeImports,
   };
 }
 
 export function renderGeneratedArtifacts(
   spec: OpenAPISpec,
-  options: Pick<Options, "httpClient" | "legacyAliases" | "pathPrefix" | "stripPrefix">,
+  options: Pick<Options, "httpClient" | "pathPrefix" | "stripPrefix">,
   preCollectedOperations?: OperationEntry[],
 ): GeneratedArtifacts {
   const pathPrefix = options.pathPrefix ?? "/api/";
@@ -151,7 +137,6 @@ export function renderGeneratedArtifacts(
   return {
     api: renderApiSource(createApiEntries(clientModel.operations), GENERATED_HEADER),
     client: renderClientSource(createClientRenderModel(clientModel), GENERATED_HEADER, httpClient),
-    types: renderTypesBarrel(spec, options.legacyAliases),
   };
 }
 
@@ -167,7 +152,6 @@ async function generate(root: string, options: Options): Promise<void> {
 
   warnOnParameterLocationMismatch(operations);
   await generateApiTypes(inputPath, outputDir);
-  writeFileSync(resolve(outputDir, "types.ts"), artifacts.types);
   writeFileSync(resolve(outputDir, "api.ts"), artifacts.api);
   writeFileSync(resolve(outputDir, "client.ts"), artifacts.client);
 }

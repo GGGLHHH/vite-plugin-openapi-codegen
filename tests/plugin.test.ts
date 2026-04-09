@@ -11,21 +11,17 @@ describe("vite-plugin-openapi-codegen", () => {
   it("generates path builders and typed request client functions", () => {
     const files = renderGeneratedArtifacts(createSpec(), {});
     const normalizedApi = normalizeGeneratedSource(files.api);
-    const normalizedTypes = normalizeGeneratedSource(files.types);
     const normalizedClient = normalizeGeneratedSource(files.client);
+
+    expect(Object.keys(files).sort()).toEqual(["api", "client"]);
 
     expect(normalizedApi).toContain("export function postAuthLogin(): string {");
     expect(normalizedApi).toContain("export function getCatalogItem(");
     expect(normalizedApi).toContain("export function getExamplesSearch(): string {");
     expect(files.api).not.toContain("buildQuery");
-
-    expect(normalizedTypes).toContain("import type { components } from './api-types'");
-    expect(normalizedTypes).toContain(
-      "export type LoginRequest = components['schemas']['LoginRequest']",
-    );
-    expect(normalizedTypes).toContain(
-      "export type ReviewResponse = components['schemas']['ReviewResponse']",
-    );
+    expect(normalizedApi).toContain("import type { components } from './api-types'");
+    expect(normalizedApi).toContain("params: components['schemas']['CatalogItemPath']");
+    expect(normalizedApi).not.toContain("from './types'");
 
     expect(normalizedClient).toContain(
       "import type { ApiRequestOptions } from '#/integrations/http'",
@@ -33,21 +29,24 @@ describe("vite-plugin-openapi-codegen", () => {
     expect(normalizedClient).toContain(
       "import { requestJson, requestVoid } from '#/integrations/http'",
     );
-    expect(normalizedClient).toContain("AuthResponse");
-    expect(normalizedClient).toContain("CatalogItemResponse");
-    expect(normalizedClient).toContain("ExampleSearchResponse");
-    expect(normalizedClient).toContain("LoginRequest");
-    expect(normalizedClient).toContain("ReviewRequest");
-    expect(normalizedClient).toContain("ReviewResponse");
-    expect(normalizedClient).toContain("from './types'");
+    expect(normalizedClient).toContain("from './api-types'");
+    expect(normalizedClient).toContain("components['schemas']['AuthResponse']");
+    expect(normalizedClient).toContain("operations['create_review']['parameters']['query']");
+    expect(normalizedClient).toContain("Promise<components['schemas']['AuthResponse']>");
+    expect(normalizedClient).toContain("Promise<components['schemas']['CatalogItemResponse']>");
+    expect(normalizedClient).toContain("Promise<components['schemas']['ExampleSearchResponse']>");
+    expect(normalizedClient).toContain("body: components['schemas']['LoginRequest']");
+    expect(normalizedClient).toContain("body: components['schemas']['ReviewRequest']");
+    expect(normalizedClient).toContain("Promise<components['schemas']['ReviewResponse']>");
+    expect(normalizedClient).not.toContain("from './types'");
     expect(normalizedClient).toContain("from './api'");
 
     expect(normalizedClient).toContain("export interface PostAuthLoginOptions {");
     expect(normalizedClient).toContain("query?: never");
     expect(normalizedClient).toContain("path?: never");
-    expect(normalizedClient).toContain("body: LoginRequest");
+    expect(normalizedClient).toContain("body: components['schemas']['LoginRequest']");
     expect(normalizedClient).toContain("signal?: AbortSignal");
-    expect(normalizedClient).toContain("): Promise<AuthResponse> {");
+    expect(normalizedClient).toContain("): Promise<components['schemas']['AuthResponse']> {");
     expect(files.client).not.toContain(
       "operations['login']['requestBody']['content']['application/json']",
     );
@@ -56,46 +55,31 @@ describe("vite-plugin-openapi-codegen", () => {
     );
 
     expect(normalizedClient).toContain("export interface GetExamplesSearchOptions {");
-    expect(normalizedClient).toContain("query: ExampleSearchQuery");
-    expect(normalizedClient).toContain("): Promise<ExampleSearchResponse> {");
+    expect(normalizedClient).toContain("query: components['schemas']['ExampleSearchQuery']");
+    expect(normalizedClient).toContain(
+      "): Promise<components['schemas']['ExampleSearchResponse']> {",
+    );
 
     expect(normalizedClient).toContain("export interface GetCatalogItemOptions {");
-    expect(normalizedClient).toContain("path: CatalogItemPath");
-    expect(normalizedClient).toContain("): Promise<CatalogItemResponse> {");
+    expect(normalizedClient).toContain("path: components['schemas']['CatalogItemPath']");
+    expect(normalizedClient).toContain(
+      "): Promise<components['schemas']['CatalogItemResponse']> {",
+    );
 
     expect(normalizedClient).toContain("export interface PostOrderReviewsOptions {");
-    expect(normalizedClient).toContain("path: OrderPath");
+    expect(normalizedClient).toContain("path: components['schemas']['OrderPath']");
     expect(normalizedClient).toContain(
       "query?: operations['create_review']['parameters']['query']",
     );
-    expect(normalizedClient).toContain("body: ReviewRequest");
-    expect(normalizedClient).toContain("): Promise<ReviewResponse> {");
-
-    expect(normalizedApi).toContain("params: CatalogItemPath");
-    expect(normalizedApi).toContain("from './types'");
+    expect(normalizedClient).toContain("body: components['schemas']['ReviewRequest']");
+    expect(normalizedClient).toContain("): Promise<components['schemas']['ReviewResponse']> {");
 
     expect(normalizedClient).toContain("export interface PostAuthLogoutOptions {");
     expect(normalizedClient).toContain("return requestVoid(");
     expect(normalizedClient).toContain("searchParams: buildSearchParams(options.query)");
 
-    expectValidTypeScript(files.types, "types.ts");
     expectValidTypeScript(files.api, "api.ts");
     expectValidTypeScript(files.client, "client.ts");
-  });
-
-  it("renders legacy aliases in generated types barrel", () => {
-    const files = renderGeneratedArtifacts(createSpec(), {
-      legacyAliases: {
-        MenuItemPath: "CatalogItemPath",
-        MenuItemsQuery: "CatalogItemsQuery",
-      },
-    });
-    const normalizedTypes = normalizeGeneratedSource(files.types);
-
-    expect(normalizedTypes).toContain("// Legacy aliases");
-    expect(normalizedTypes).toContain("export type MenuItemPath = CatalogItemPath");
-    expect(normalizedTypes).toContain("export type MenuItemsQuery = CatalogItemsQuery");
-    expectValidTypeScript(files.types, "types.ts");
   });
 
   it("supports custom pathPrefix for filtering and stripping", () => {
@@ -178,7 +162,7 @@ describe("vite-plugin-openapi-codegen", () => {
       buildExampleProject();
 
       expect(existsSync(resolve(generatedDir, "api-types.d.ts"))).toBe(true);
-      expect(existsSync(resolve(generatedDir, "types.ts"))).toBe(true);
+      expect(existsSync(resolve(generatedDir, "types.ts"))).toBe(false);
       expect(existsSync(resolve(generatedDir, "api.ts"))).toBe(true);
       expect(existsSync(resolve(generatedDir, "client.ts"))).toBe(true);
       expect(existsSync(resolve(distDir, "index.html"))).toBe(true);

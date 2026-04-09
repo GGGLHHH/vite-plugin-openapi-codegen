@@ -2,10 +2,9 @@
 
 Generate typed API clients and path builders from an OpenAPI document during Vite builds.
 
-The plugin reads your OpenAPI spec, runs `openapi-typescript`, and emits four files into your target directory:
+The plugin reads your OpenAPI spec, runs `openapi-typescript`, and emits three files into your target directory:
 
 - `api-types.d.ts` for raw OpenAPI-derived types
-- `types.ts` for schema aliases
 - `api.ts` for path builder functions
 - `client.ts` for typed request helpers
 
@@ -42,7 +41,6 @@ When you run `vp dev` or `vp build`, the plugin generates:
 ```text
 src/generated/
   api-types.d.ts
-  types.ts
   api.ts
   client.ts
 ```
@@ -76,7 +74,6 @@ After either command, generated files are written to:
 ```text
 example/src/generated/
   api-types.d.ts
-  types.ts
   api.ts
   client.ts
 ```
@@ -139,7 +136,9 @@ export default defineConfig({
 Given a spec path like `/api/users/{user_id}`, the plugin generates a path builder:
 
 ```ts
-export function getUser(params: UserPath): string {
+import type { components } from "./api-types";
+
+export function getUser(params: components["schemas"]["UserPath"]): string {
   return `users/${params.user_id}`;
 }
 ```
@@ -147,9 +146,11 @@ export function getUser(params: UserPath): string {
 And a typed client helper:
 
 ```ts
+import type { components } from "./api-types";
+
 export interface GetUserOptions {
   query?: never;
-  path: UserPath;
+  path: components["schemas"]["UserPath"];
   body?: never;
   signal?: AbortSignal;
 }
@@ -157,8 +158,8 @@ export interface GetUserOptions {
 export function getUser(
   options: GetUserOptions,
   requestOptions: RuntimeRequestOptions = {},
-): Promise<UserResponse> {
-  return requestJson<UserResponse>(buildGetUserPath(options.path), {
+): Promise<components["schemas"]["UserResponse"]> {
+  return requestJson<components["schemas"]["UserResponse"]>(buildGetUserPath(options.path), {
     ...requestOptions,
     method: "GET",
     signal: options.signal,
@@ -189,7 +190,6 @@ interface Options {
     requestOptionsType?: string;
     omitKeys?: string[];
   };
-  legacyAliases?: Record<string, string>;
 }
 ```
 
@@ -213,10 +213,6 @@ Controls whether the `pathPrefix` is removed from generated path builders. The d
 
 Overrides the runtime import path and symbol names used by generated clients.
 
-### `legacyAliases`
-
-Adds extra type aliases to `types.ts` so you can preserve older type names during migrations.
-
 ## Programmatic Usage
 
 If you want to generate artifacts outside the Vite lifecycle, use `renderGeneratedArtifacts`:
@@ -234,7 +230,6 @@ const files = renderGeneratedArtifacts(spec, {
 
 console.log(files.api);
 console.log(files.client);
-console.log(files.types);
 ```
 
 ## Development

@@ -78,7 +78,6 @@ export interface NormalizedOperation {
 export interface ClientRenderModel {
   operations: NormalizedOperation[];
   needsSearchParamsHelper: boolean;
-  typeImports: string[];
 }
 
 interface NormalizationContext {
@@ -100,15 +99,13 @@ export function buildClientRenderModelFromOperations(
   },
 ): ClientRenderModel {
   const context = buildNormalizationContext(spec);
-  const typeImports = new Set<string>();
   const normalized = operations.map((entry) =>
-    normalizeOperation(entry, context, typeImports, requestFunctionNames),
+    normalizeOperation(entry, context, requestFunctionNames),
   );
 
   return {
     operations: normalized,
     needsSearchParamsHelper: normalized.some((operation) => operation.queryChannel.present),
-    typeImports: [...typeImports].sort(),
   };
 }
 
@@ -318,21 +315,19 @@ function resolveParameterTypeExpression(
   entry: OperationEntry,
   context: NormalizationContext,
   location: "path" | "query",
-  typeImports: Set<string>,
 ): string {
   const effectiveParameters = getEffectiveParametersByLocation(entry, location);
   if (effectiveParameters.length === 0) {
     return "never";
   }
 
-  const alias = resolveAlias(
+  const schemaTypeExpr = resolveAlias(
     context,
     effectiveParameters.map((parameter) => parameter.name),
     entry.operation.tags?.[0],
   );
-  if (alias) {
-    typeImports.add(alias);
-    return alias;
+  if (schemaTypeExpr) {
+    return schemaTypeExpr;
   }
 
   const rawParameters = getParametersByLocation(entry.operation, location);
@@ -346,20 +341,14 @@ function resolveParameterTypeExpression(
 function normalizeOperation(
   entry: OperationEntry,
   context: NormalizationContext,
-  typeImports: Set<string>,
   requestFunctionNames: { json: string; void: string },
 ): NormalizedOperation {
   const successResponse = getSuccessResponseInfo(entry.operation);
   const builderAlias = getBuilderAlias(entry.funcName);
-  const pathChannel = normalizeParameterChannel(entry, context, "path", typeImports);
-  const queryChannel = normalizeParameterChannel(entry, context, "query", typeImports);
-  const bodyChannel = normalizeBodyChannel(entry, context, typeImports);
-  const responseTypeExpr = resolveResponseTypeExpression(
-    entry,
-    context,
-    typeImports,
-    successResponse,
-  );
+  const pathChannel = normalizeParameterChannel(entry, context, "path");
+  const queryChannel = normalizeParameterChannel(entry, context, "query");
+  const bodyChannel = normalizeBodyChannel(entry, context);
+  const responseTypeExpr = resolveResponseTypeExpression(entry, context, successResponse);
 
   return {
     bodyChannel,
@@ -379,7 +368,6 @@ function normalizeParameterChannel(
   entry: OperationEntry,
   context: NormalizationContext,
   location: "path" | "query",
-  typeImports: Set<string>,
 ): NormalizedChannel {
   const parameters = getEffectiveParametersByLocation(entry, location);
   if (parameters.length === 0) {
@@ -393,16 +381,15 @@ function normalizeParameterChannel(
   return {
     present: true,
     required: hasRequiredChannel(parameters),
-    typeExpr: resolveParameterTypeExpression(entry, context, location, typeImports),
+    typeExpr: resolveParameterTypeExpression(entry, context, location),
   };
 }
 
 function normalizeBodyChannel(
   entry: OperationEntry,
   context: NormalizationContext,
-  typeImports: Set<string>,
 ): NormalizedChannel {
-  const typeExpr = resolveRequestBodyTypeExpression(entry, context, typeImports);
+  const typeExpr = resolveRequestBodyTypeExpression(entry, context);
   if (!typeExpr) {
     return {
       present: false,
@@ -421,16 +408,15 @@ function normalizeBodyChannel(
 function resolveRequestBodyTypeExpression(
   entry: OperationEntry,
   context: NormalizationContext,
-  typeImports: Set<string>,
 ): string | null {
   const jsonBody = getJsonRequestBody(entry.operation);
   if (!jsonBody) {
     return null;
   }
 
-  const alias = resolveSchemaAlias(context, jsonBody.schema, typeImports);
-  if (alias) {
-    return alias;
+  const schemaTypeExpr = resolveSchemaTypeExpression(context, jsonBody.schema);
+  if (schemaTypeExpr) {
+    return schemaTypeExpr;
   }
 
   return `operations['${entry.operationId}']['requestBody']['content']['application/json']`;
@@ -439,7 +425,6 @@ function resolveRequestBodyTypeExpression(
 function resolveResponseTypeExpression(
   entry: OperationEntry,
   context: NormalizationContext,
-  typeImports: Set<string>,
   successResponse: SuccessResponseInfo,
 ): string | null {
   if (!successResponse.hasJsonBody) {
@@ -448,9 +433,9 @@ function resolveResponseTypeExpression(
 
   const response = entry.operation.responses?.[successResponse.statusKey];
   const jsonContent = response?.content?.["application/json"];
-  const alias = resolveSchemaAlias(context, jsonContent?.schema, typeImports);
-  if (alias) {
-    return alias;
+  const schemaTypeExpr = resolveSchemaTypeExpression(context, jsonContent?.schema);
+  if (schemaTypeExpr) {
+    return schemaTypeExpr;
   }
 
   return `operations['${entry.operationId}']['responses'][${formatStatusKey(
@@ -480,7 +465,7 @@ function resolveAlias(
   }
 
   if (candidates.length === 1) {
-    return candidates[0];
+    return createSchemaTypeExpression(candidates[0]);
   }
 
   if (tag) {
@@ -488,17 +473,16 @@ function resolveAlias(
     const prefix = `${singularTag[0]?.toUpperCase() ?? ""}${singularTag.slice(1)}`;
     const match = candidates.find((candidate) => candidate.startsWith(prefix));
     if (match) {
-      return match;
+      return createSchemaTypeExpression(match);
     }
   }
 
-  return candidates[0];
+  return createSchemaTypeExpression(candidates[0]);
 }
 
-function resolveSchemaAlias(
+function resolveSchemaTypeExpression(
   context: NormalizationContext,
   schema: unknown,
-  typeImports: Set<string>,
 ): string | undefined {
   const ref = readSchemaRef(schema);
   if (!ref) {
@@ -510,8 +494,11 @@ function resolveSchemaAlias(
     return undefined;
   }
 
-  typeImports.add(schemaName);
-  return schemaName;
+  return createSchemaTypeExpression(schemaName);
+}
+
+function createSchemaTypeExpression(schemaName: string): string {
+  return `components['schemas']['${schemaName}']`;
 }
 
 function readSchemaRef(schema: unknown): string | undefined {

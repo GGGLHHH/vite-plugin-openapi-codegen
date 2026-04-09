@@ -31,7 +31,6 @@ interface AstClientOperation {
 interface AstClientRenderModel {
   needsSearchParamsHelper: boolean;
   operations: AstClientOperation[];
-  typeImports: string[];
 }
 
 interface AstHttpClientConfig {
@@ -42,50 +41,12 @@ interface AstHttpClientConfig {
   voidFunction: string;
 }
 
-export function renderTypesSource(
-  schemaNames: string[],
-  legacyAliases: Record<string, string> | undefined,
-  generatedHeader: readonly string[],
-): string {
-  const statements: ts.Statement[] = [createTypeOnlyImport(["components"], "./api-types")];
-
-  for (const name of schemaNames) {
-    statements.push(
-      ts.factory.createTypeAliasDeclaration(
-        [createExportModifier()],
-        ts.factory.createIdentifier(name),
-        undefined,
-        createIndexedAccessTypeNode("components", ["schemas", name]),
-      ),
-    );
-  }
-
-  if (legacyAliases && Object.keys(legacyAliases).length > 0) {
-    const aliases = Object.entries(legacyAliases);
-    aliases.forEach(([alias, target], index) => {
-      const statement = ts.factory.createTypeAliasDeclaration(
-        [createExportModifier()],
-        ts.factory.createIdentifier(alias),
-        undefined,
-        createTypeNodeFromText(target),
-      );
-      statements.push(
-        index === 0 ? createGeneratedBannerComment(statement, "Legacy aliases") : statement,
-      );
-    });
-  }
-
-  return printGeneratedFile(statements, generatedHeader);
-}
-
 export function renderApiSource(
   entries: AstApiEntry[],
   generatedHeader: readonly string[],
 ): string {
   const statements: ts.Statement[] = [];
   const seenGroups = new Set<string>();
-  let needsOperationsImport = false;
-  const typeAliasImports = new Set<string>();
 
   for (const entry of entries) {
     const parameters =
@@ -100,14 +61,6 @@ export function renderApiSource(
               createTypeNodeFromText(entry.pathTypeExpr),
             ),
           ];
-
-    if (entry.pathTypeExpr) {
-      if (entry.pathTypeExpr.includes("operations[")) {
-        needsOperationsImport = true;
-      } else if (/^[A-Z]\w*$/.test(entry.pathTypeExpr)) {
-        typeAliasImports.add(entry.pathTypeExpr);
-      }
-    }
 
     const declaration = ts.factory.createFunctionDeclaration(
       [createExportModifier()],
@@ -137,11 +90,9 @@ export function renderApiSource(
   }
 
   const sourceStatements: ts.Statement[] = [];
-  if (needsOperationsImport) {
-    sourceStatements.push(createTypeOnlyImport(["operations"], "./api-types"));
-  }
-  if (typeAliasImports.size > 0) {
-    sourceStatements.push(createTypeOnlyImport([...typeAliasImports].sort(), "./types"));
+  const apiTypeImports = collectApiTypeImports(entries.map((entry) => entry.pathTypeExpr));
+  if (apiTypeImports.length > 0) {
+    sourceStatements.push(createTypeOnlyImport(apiTypeImports, "./api-types"));
   }
   sourceStatements.push(...statements);
 
@@ -159,11 +110,19 @@ export function renderClientSource(
       [{ name: httpClient.jsonFunction }, { name: httpClient.voidFunction }],
       httpClient.module,
     ),
-    createTypeOnlyImport(["operations"], "./api-types"),
   ];
 
-  if (model.typeImports.length > 0) {
-    statements.push(createTypeOnlyImport(model.typeImports, "./types"));
+  const apiTypeImports = collectApiTypeImports(
+    model.operations.flatMap((operation) => [
+      operation.bodyChannel.typeExpr,
+      operation.pathChannel.typeExpr,
+      operation.queryChannel.typeExpr,
+      operation.responseTypeExpr,
+      operation.returnTypeExpr,
+    ]),
+  );
+  if (apiTypeImports.length > 0) {
+    statements.push(createTypeOnlyImport(apiTypeImports, "./api-types"));
   }
 
   statements.push(
@@ -297,18 +256,23 @@ function createGeneratedBannerComment<T extends ts.Node>(node: T, text: string):
   );
 }
 
-function createStringLiteralType(value: string): ts.LiteralTypeNode {
-  return ts.factory.createLiteralTypeNode(ts.factory.createStringLiteral(value));
-}
+function collectApiTypeImports(typeExprs: Array<string | null | undefined>): string[] {
+  const names = new Set<string>();
 
-function createIndexedAccessTypeNode(rootName: string, indices: string[]): ts.TypeNode {
-  let current: ts.TypeNode = ts.factory.createTypeReferenceNode(rootName);
+  for (const typeExpr of typeExprs) {
+    if (!typeExpr) {
+      continue;
+    }
 
-  for (const index of indices) {
-    current = ts.factory.createIndexedAccessTypeNode(current, createStringLiteralType(index));
+    if (typeExpr.includes("components[")) {
+      names.add("components");
+    }
+    if (typeExpr.includes("operations[")) {
+      names.add("operations");
+    }
   }
 
-  return current;
+  return [...names].sort();
 }
 
 function createPathExpression(strippedPath: string): ts.Expression {
