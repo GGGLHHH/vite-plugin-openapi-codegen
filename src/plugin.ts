@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 import type { Plugin, ResolvedConfig } from "vite-plus";
@@ -158,6 +158,7 @@ export function renderGeneratedArtifacts(
 async function generate(root: string, options: Options): Promise<void> {
   const inputPath = resolve(root, options.input);
   const outputDir = resolve(root, options.output);
+  mkdirSync(outputDir, { recursive: true });
   const spec = JSON.parse(readFileSync(inputPath, "utf-8")) as OpenAPISpec;
   const pathPrefix = options.pathPrefix ?? "/api/";
   const stripPrefix = options.stripPrefix ?? true;

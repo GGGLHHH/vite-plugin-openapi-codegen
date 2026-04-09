@@ -7,9 +7,11 @@
     "strict": true,
     "noEmit": true,
     "skipLibCheck": true,
+    "allowImportingTsExtensions": true,
+    "types": ["node"],
     "paths": {
-      "@example/http": ["./http.ts"]
+      "@example/http": ["./src/http.ts"]
     }
   },
-  "include": ["output", "http.ts"]
+  "include": ["src", "vite.config.ts"]
 }

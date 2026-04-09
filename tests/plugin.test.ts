@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
 import * as ts from "typescript";
@@ -160,7 +160,7 @@ describe("vite-plugin-openapi-codegen", () => {
     expect(() =>
       execFileSync(
         "vp",
-        ["lint", "--type-aware", "--tsconfig", "./tsconfig.json", "example/http.ts"],
+        ["lint", "--type-aware", "--tsconfig", "./tsconfig.json", "example/src/http.ts"],
         {
           cwd: resolve(import.meta.dirname, ".."),
           encoding: "utf8",
@@ -170,8 +170,35 @@ describe("vite-plugin-openapi-codegen", () => {
     ).not.toThrow();
   });
 
+  it("builds the example as a real vite project and generates source files", () => {
+    const { distDir, generatedDir } = getExamplePaths();
+    cleanupExampleArtifacts();
+
+    try {
+      buildExampleProject();
+
+      expect(existsSync(resolve(generatedDir, "api-types.d.ts"))).toBe(true);
+      expect(existsSync(resolve(generatedDir, "types.ts"))).toBe(true);
+      expect(existsSync(resolve(generatedDir, "api.ts"))).toBe(true);
+      expect(existsSync(resolve(generatedDir, "client.ts"))).toBe(true);
+      expect(existsSync(resolve(distDir, "index.html"))).toBe(true);
+
+      const generatedClient = readFileSync(resolve(generatedDir, "client.ts"), "utf-8");
+      expect(generatedClient).toContain('from "@example/http"');
+    } finally {
+      cleanupExampleArtifacts();
+    }
+  });
+
   it("keeps the example tsconfig type-safe", () => {
-    expect(getProjectTypeErrors("example/tsconfig.json")).toEqual([]);
+    cleanupExampleArtifacts();
+
+    try {
+      buildExampleProject();
+      expect(getProjectTypeErrors("example/tsconfig.json")).toEqual([]);
+    } finally {
+      cleanupExampleArtifacts();
+    }
   });
 
   it("retains full path when stripPrefix is false", () => {
@@ -310,6 +337,37 @@ function formatDiagnostic(diagnostic: ts.Diagnostic): string {
 
 function normalizeGeneratedSource(sourceText: string): string {
   return sourceText.replaceAll('"', "'").replaceAll(";", "").replace(/\s+/g, " ").trim();
+}
+
+function getExamplePaths() {
+  const projectRoot = resolve(import.meta.dirname, "..");
+
+  return {
+    distDir: resolve(projectRoot, "example/dist"),
+    generatedDir: resolve(projectRoot, "example/src/generated"),
+    projectRoot,
+  };
+}
+
+function cleanupExampleArtifacts() {
+  const { distDir, generatedDir } = getExamplePaths();
+
+  rmSync(generatedDir, { force: true, recursive: true });
+  rmSync(distDir, { force: true, recursive: true });
+}
+
+function buildExampleProject() {
+  const { projectRoot } = getExamplePaths();
+
+  execFileSync(
+    "./node_modules/.bin/vp",
+    ["build", "example", "--config", "./example/vite.config.ts", "--logLevel", "error"],
+    {
+      cwd: projectRoot,
+      encoding: "utf8",
+      stdio: "pipe",
+    },
+  );
 }
 
 function createSpec(): Parameters<typeof renderGeneratedArtifacts>[0] {

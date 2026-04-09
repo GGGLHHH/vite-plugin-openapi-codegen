@@ -9,9 +9,9 @@ export default defineConfig({
       typeAware: true,
       typeCheck: true,
     },
-    ignorePatterns: ["example/output/**"],
+    ignorePatterns: ["example/dist/**", "example/src/generated/**"],
   },
   fmt: {
-    ignorePatterns: ["example/output/**"],
+    ignorePatterns: ["example/dist/**", "example/src/generated/**"],
   },
 });

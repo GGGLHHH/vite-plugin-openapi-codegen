@@ -17,5 +17,11 @@
     "verbatimModuleSyntax": true,
     "skipLibCheck": true
   },
-  "include": ["src", "tests", "example/http.ts", "example/generate.ts"]
+  "include": [
+    "src",
+    "tests",
+    "example/src/http.ts",
+    "example/src/main.ts",
+    "example/vite.config.ts"
+  ]
 }
