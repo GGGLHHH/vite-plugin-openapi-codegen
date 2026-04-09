@@ -47,6 +47,40 @@ src/generated/
   client.ts
 ```
 
+## Real Example Project
+
+This repository includes a real minimal Vite project under `example/` that demonstrates
+automatic generation from `vite.config.ts`.
+
+Key files:
+
+- `example/vite.config.ts` wires the plugin into Vite
+- `example/openapi.json` is the input spec
+- `example/src/http.ts` provides the runtime symbols used by generated clients
+- `example/src/generated/*` is generated during build/dev and is gitignored
+
+Run the example build:
+
+```bash
+vp build example --config ./example/vite.config.ts
+```
+
+Run the example dev server:
+
+```bash
+vp example --config ./example/vite.config.ts
+```
+
+After either command, generated files are written to:
+
+```text
+example/src/generated/
+  api-types.d.ts
+  types.ts
+  api.ts
+  client.ts
+```
+
 ## Runtime Contract
 
 By default, generated clients import the following symbols from `#/integrations/http`:
@@ -210,4 +244,10 @@ vp install
 vp test
 vp check
 vp pack
+```
+
+To validate the real example project as part of local development:
+
+```bash
+vp build example --config ./example/vite.config.ts
 ```
