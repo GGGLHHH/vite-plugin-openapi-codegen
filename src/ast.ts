@@ -1,6 +1,6 @@
 import * as ts from "typescript";
 
-import type { NormalizedChannel } from "./normalization.ts";
+import type { NormalizedChannel, TypeAliasDefinition } from "./normalization.ts";
 
 const AST_PRINTER = ts.createPrinter({
   newLine: ts.NewLineKind.LineFeed,
@@ -114,9 +114,9 @@ export function renderClientSource(
 
   const apiTypeImports = collectApiTypeImports(
     model.operations.flatMap((operation) => [
-      operation.bodyChannel.typeExpr,
-      operation.pathChannel.typeExpr,
-      operation.queryChannel.typeExpr,
+      operation.bodyChannel.typeRef?.sourceExpr,
+      operation.pathChannel.typeRef?.sourceExpr,
+      operation.queryChannel.typeRef?.sourceExpr,
       operation.responseTypeExpr,
       operation.returnTypeExpr,
     ]),
@@ -166,6 +166,16 @@ export function renderClientSource(
   }
 
   return printGeneratedFile(statements, generatedHeader);
+}
+
+export function renderOperationTypeAliases(typeAliases: TypeAliasDefinition[]): string {
+  if (typeAliases.length === 0) {
+    return "";
+  }
+
+  return `${typeAliases
+    .map((alias) => `export type ${alias.typeName} = ${alias.definitionExpr};`)
+    .join("\n")}\n`;
 }
 
 function printGeneratedFile(
@@ -269,10 +279,43 @@ function collectApiTypeImports(typeExprs: Array<string | null | undefined>): str
     }
     if (typeExpr.includes("operations[")) {
       names.add("operations");
+      continue;
+    }
+
+    const name = typeExpr.trim();
+    if (/^[A-Za-z_$][\w$]*$/.test(name) && !isBuiltinTypeName(name)) {
+      names.add(name);
     }
   }
 
   return [...names].sort();
+}
+
+function isBuiltinTypeName(name: string): boolean {
+  return new Set([
+    "AbortSignal",
+    "Array",
+    "Blob",
+    "Date",
+    "Error",
+    "File",
+    "FormData",
+    "Map",
+    "Omit",
+    "Promise",
+    "Record",
+    "Set",
+    "URLSearchParams",
+    "boolean",
+    "never",
+    "null",
+    "number",
+    "object",
+    "string",
+    "undefined",
+    "unknown",
+    "void",
+  ]).has(name);
 }
 
 function createPathExpression(strippedPath: string): ts.Expression {
@@ -348,8 +391,8 @@ function createClientChannelField(
     channel.present && channel.required
       ? undefined
       : ts.factory.createToken(ts.SyntaxKind.QuestionToken),
-    channel.present && channel.typeExpr
-      ? createTypeNodeFromText(channel.typeExpr)
+    channel.present && channel.typeRef
+      ? createTypeNodeFromText(channel.typeRef.sourceExpr)
       : ts.factory.createKeywordTypeNode(ts.SyntaxKind.NeverKeyword),
   );
 }

@@ -149,6 +149,25 @@ export default defineConfig({
 });
 ```
 
+If you want shorter generated type references, enable `typeAliases`. This keeps the type name suffixes, but avoids long chains like `components["schemas"]["CreateUserRequest"]` and `operations["list_users"]["parameters"]["query"]` in the generated output:
+
+```ts
+import { defineConfig } from "vite-plus";
+import { openapiCodegen } from "vite-plugin-openapi-codegen";
+
+export default defineConfig({
+  plugins: [
+    openapiCodegen({
+      input: "openapi.json",
+      output: "src/generated",
+      typeAliases: true,
+    }),
+  ],
+});
+```
+
+When enabled, the plugin writes the raw OpenAPI types to `api-types.d.ts` and adds top-level aliases for schema and operation types that the generated `api.ts` and `client.ts` files import directly.
+
 ## Generated Output
 
 Given a spec path like `/api/users/{user_id}`, the plugin generates a path builder:
@@ -201,6 +220,7 @@ interface Options {
   output: string;
   pathPrefix?: string;
   stripPrefix?: boolean;
+  typeAliases?: boolean;
   httpClient?: {
     module?: string;
     jsonFunction?: string;
@@ -228,6 +248,10 @@ Only paths starting with this prefix are included. The default is `"/api/"`.
 ### `stripPrefix`
 
 Controls whether the `pathPrefix` is removed from generated path builders. The default is `true`.
+
+### `typeAliases`
+
+When enabled, the plugin generates top-level aliases for schema and operation types and makes the emitted `api.ts` and `client.ts` import those shorter names. The suffixes stay intact, so generated names remain readable while avoiding long `components["schemas"][...]` and `operations["..."][...]` chains. The default is `false` to preserve existing output.
 
 ### `httpClient`
 

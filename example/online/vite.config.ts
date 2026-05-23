@@ -19,6 +19,7 @@ export default defineConfig({
         requestOptionsType: "RequestOptions",
         omitKeys: ["json", "method", "signal"],
       },
+      typeAliases: true,
     }),
   ],
   resolve: {

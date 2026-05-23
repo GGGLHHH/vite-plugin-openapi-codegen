@@ -17,9 +17,9 @@ describe("vite-plugin-openapi-codegen", () => {
 
     expect(Object.keys(files).sort()).toEqual(["api", "client"]);
 
-    expect(normalizedApi).toContain("export function postAuthLogin(): string {");
-    expect(normalizedApi).toContain("export function getCatalogItem(");
-    expect(normalizedApi).toContain("export function getExamplesSearch(): string {");
+    expect(normalizedApi).toContain("export function login(): string {");
+    expect(normalizedApi).toContain("export function getItem(");
+    expect(normalizedApi).toContain("export function searchExamples(): string {");
     expect(files.api).not.toContain("buildQuery");
     expect(normalizedApi).toContain("import type { components } from './api-types'");
     expect(normalizedApi).toContain("params: components['schemas']['CatalogItemPath']");
@@ -43,7 +43,7 @@ describe("vite-plugin-openapi-codegen", () => {
     expect(normalizedClient).not.toContain("from './types'");
     expect(normalizedClient).toContain("from './api'");
 
-    expect(normalizedClient).toContain("export interface PostAuthLoginOptions {");
+    expect(normalizedClient).toContain("export interface LoginOptions {");
     expect(normalizedClient).toContain("query?: never");
     expect(normalizedClient).toContain("path?: never");
     expect(normalizedClient).toContain("body: components['schemas']['LoginRequest']");
@@ -56,19 +56,19 @@ describe("vite-plugin-openapi-codegen", () => {
       "operations['login']['responses'][200]['content']['application/json']",
     );
 
-    expect(normalizedClient).toContain("export interface GetExamplesSearchOptions {");
+    expect(normalizedClient).toContain("export interface SearchExamplesOptions {");
     expect(normalizedClient).toContain("query: components['schemas']['ExampleSearchQuery']");
     expect(normalizedClient).toContain(
       "): Promise<components['schemas']['ExampleSearchResponse']> {",
     );
 
-    expect(normalizedClient).toContain("export interface GetCatalogItemOptions {");
+    expect(normalizedClient).toContain("export interface GetItemOptions {");
     expect(normalizedClient).toContain("path: components['schemas']['CatalogItemPath']");
     expect(normalizedClient).toContain(
       "): Promise<components['schemas']['CatalogItemResponse']> {",
     );
 
-    expect(normalizedClient).toContain("export interface PostOrderReviewsOptions {");
+    expect(normalizedClient).toContain("export interface CreateReviewOptions {");
     expect(normalizedClient).toContain("path: components['schemas']['OrderPath']");
     expect(normalizedClient).toContain(
       "query?: operations['create_review']['parameters']['query']",
@@ -76,7 +76,7 @@ describe("vite-plugin-openapi-codegen", () => {
     expect(normalizedClient).toContain("body: components['schemas']['ReviewRequest']");
     expect(normalizedClient).toContain("): Promise<components['schemas']['ReviewResponse']> {");
 
-    expect(normalizedClient).toContain("export interface PostAuthLogoutOptions {");
+    expect(normalizedClient).toContain("export interface LogoutOptions {");
     expect(normalizedClient).toContain("return requestVoid(");
     expect(normalizedClient).toContain("searchParams: buildSearchParams(options.query)");
 
@@ -112,10 +112,99 @@ describe("vite-plugin-openapi-codegen", () => {
     const files = renderGeneratedArtifacts(spec, { pathPrefix: "/v1/" });
     const normalizedApi = normalizeGeneratedSource(files.api);
 
-    expect(normalizedApi).toContain("export function getItems(): string {");
+    expect(normalizedApi).toContain("export function listItems(): string {");
     expect(normalizedApi).toContain("return 'items'");
     expect(normalizedApi).not.toContain("ignored");
     expectValidTypeScript(files.api, "api.ts");
+  });
+
+  it("generates top-level type aliases when enabled", () => {
+    const files = renderGeneratedArtifacts(createSpec(), { typeAliases: true });
+    const normalizedApi = normalizeGeneratedSource(files.api);
+    const normalizedApiTypes = normalizeGeneratedSource(files.apiTypes ?? "");
+    const normalizedClient = normalizeGeneratedSource(files.client);
+
+    expect(Object.keys(files).sort()).toEqual(["api", "apiTypes", "client"]);
+    expect(normalizedApi).toContain(
+      "import type { CatalogItemPath, OrderPath } from './api-types'",
+    );
+    expect(normalizedApi).toContain("params: CatalogItemPath");
+    expect(normalizedApi).not.toContain("components['schemas']['CatalogItemPath']");
+
+    expect(normalizedApiTypes).toContain(
+      "export type CreateReviewQuery = operations['create_review']['parameters']['query']",
+    );
+
+    expect(normalizedClient).toContain(
+      "import type { ApiRequestOptions } from '#/integrations/http'",
+    );
+    expect(normalizedClient).toContain("import type {");
+    expect(normalizedClient).toContain("AuthResponse");
+    expect(normalizedClient).toContain("CatalogItemPath");
+    expect(normalizedClient).toContain("CreateReviewQuery");
+    expect(normalizedClient).toContain("ExampleSearchQuery");
+    expect(normalizedClient).toContain("LoginRequest");
+    expect(normalizedClient).toContain("body: LoginRequest");
+    expect(normalizedClient).toContain("path: CatalogItemPath");
+    expect(normalizedClient).toContain("query: ExampleSearchQuery");
+    expect(normalizedClient).toContain("query?: CreateReviewQuery");
+    expect(normalizedClient).toContain("): Promise<AuthResponse> {");
+    expect(normalizedClient).not.toContain("components['schemas']");
+    expect(normalizedClient).not.toContain("operations['");
+
+    expectValidTypeScript(files.api, "api.ts");
+    expectValidTypeScript(files.client, "client.ts");
+    expectValidTypeScript(createMinimalApiTypesSource(files.apiTypes ?? ""), "api-types.ts");
+  });
+
+  it("uses operationId names to avoid collisions across repeated path parameters", () => {
+    const files = renderGeneratedArtifacts(
+      {
+        paths: {
+          "/api/admin/projects/{id}": {
+            get: {
+              operationId: "get-project",
+              parameters: [
+                {
+                  in: "path",
+                  name: "id",
+                  required: true,
+                  schema: { type: "string" },
+                },
+              ],
+              responses: { 204: { description: "OK" } },
+              tags: ["projects"],
+            },
+          },
+          "/api/admin/users/{id}": {
+            get: {
+              operationId: "get-user",
+              parameters: [
+                {
+                  in: "path",
+                  name: "id",
+                  required: true,
+                  schema: { type: "string" },
+                },
+              ],
+              responses: { 204: { description: "OK" } },
+              tags: ["users"],
+            },
+          },
+        },
+      },
+      {},
+    );
+    const normalizedApi = normalizeGeneratedSource(files.api);
+    const normalizedClient = normalizeGeneratedSource(files.client);
+
+    expect(normalizedApi).toContain("export function getProject(");
+    expect(normalizedApi).toContain("export function getUser(");
+    expect(normalizedApi).not.toContain("export function getAdminId(");
+    expect(normalizedClient).toContain("getProject as buildGetProjectPath");
+    expect(normalizedClient).toContain("getUser as buildGetUserPath");
+    expectValidTypeScript(files.api, "api.ts");
+    expectValidTypeScript(files.client, "client.ts");
   });
 
   it("supports custom httpClient configuration", () => {
@@ -423,6 +512,28 @@ function formatDiagnostic(diagnostic: ts.Diagnostic): string {
 
 function normalizeGeneratedSource(sourceText: string): string {
   return sourceText.replaceAll('"', "'").replaceAll(";", "").replace(/\s+/g, " ").trim();
+}
+
+function createMinimalApiTypesSource(extraSource: string): string {
+  return [
+    "export interface components {",
+    "  schemas: {",
+    "    AuthResponse: { token: string };",
+    "    CatalogItemPath: { item_id: string };",
+    "    CatalogItemResponse: { item_id: string };",
+    "    ExampleSearchQuery: { page: number };",
+    "    ExampleSearchResponse: { page: number };",
+    "    LoginRequest: { identifier: string };",
+    "    OrderPath: { order_id: string };",
+    "    ReviewRequest: { rating: number };",
+    "    ReviewResponse: { review_id: string };",
+    "  };",
+    "}",
+    "export interface operations {",
+    "  create_review: { parameters: { query?: { notify?: boolean } } };",
+    "}",
+    extraSource,
+  ].join("\n");
 }
 
 async function callConfigResolved(

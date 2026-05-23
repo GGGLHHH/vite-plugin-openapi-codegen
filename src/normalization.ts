@@ -59,7 +59,13 @@ export interface OperationEntry {
 export interface NormalizedChannel {
   present: boolean;
   required: boolean;
-  typeExpr: string | null;
+  typeRef: NormalizedTypeReference | null;
+}
+
+export interface NormalizedTypeReference {
+  aliasDefinitionExpr: string | null;
+  sourceExpr: string;
+  typeName: string;
 }
 
 export interface NormalizedOperation {
@@ -71,18 +77,25 @@ export interface NormalizedOperation {
   pathInvocationExpr: string;
   queryChannel: NormalizedChannel;
   requestFunction: string;
-  responseTypeExpr: string | null;
+  responseTypeRef: NormalizedTypeReference | null;
   returnTypeExpr: string;
 }
 
 export interface ClientRenderModel {
   operations: NormalizedOperation[];
   needsSearchParamsHelper: boolean;
+  typeAliases: TypeAliasDefinition[];
+}
+
+export interface TypeAliasDefinition {
+  definitionExpr: string;
+  typeName: string;
 }
 
 interface NormalizationContext {
   schemaAliasIndex: Map<string, string[]>;
   schemaNames: Set<string>;
+  usedTypeNames: Set<string>;
 }
 
 interface SuccessResponseInfo {
@@ -106,6 +119,7 @@ export function buildClientRenderModelFromOperations(
   return {
     operations: normalized,
     needsSearchParamsHelper: normalized.some((operation) => operation.queryChannel.present),
+    typeAliases: collectTypeAliases(normalized),
   };
 }
 
@@ -135,7 +149,7 @@ export function collectOperations(
       const strippedPath = stripPrefix ? apiPath.replace(pathPrefix, "") : apiPath;
       entries.push({
         apiPath,
-        funcName: makeFuncName(method, apiPath, pathPrefix),
+        funcName: makeFuncName(operation.operationId, method, apiPath, pathPrefix),
         group: strippedPath.split("/")[0] ?? "misc",
         method,
         operation,
@@ -196,6 +210,7 @@ function buildNormalizationContext(spec: OpenAPISpec): NormalizationContext {
   return {
     schemaAliasIndex,
     schemaNames,
+    usedTypeNames: new Set(schemaNames),
   };
 }
 
@@ -266,7 +281,17 @@ function getClientOptionTypeName(funcName: string): string {
   return `${capitalize(funcName)}Options`;
 }
 
-function makeFuncName(method: HttpMethod, apiPath: string, pathPrefix = "/api/"): string {
+function makeFuncName(
+  operationId: string,
+  method: HttpMethod,
+  apiPath: string,
+  pathPrefix = "/api/",
+): string {
+  const normalizedOperationId = toFunctionName(operationId);
+  if (normalizedOperationId.length > 0) {
+    return normalizedOperationId;
+  }
+
   const segments = apiPath.replace(pathPrefix, "").split("/");
   const result: string[] = [];
 
@@ -290,6 +315,25 @@ function makeFuncName(method: HttpMethod, apiPath: string, pathPrefix = "/api/")
   return `${method}${capitalize(baseName)}`;
 }
 
+function toFunctionName(value: string): string {
+  const segments = value
+    .split(/[^a-zA-Z0-9]+/g)
+    .map((segment) => segment.trim())
+    .filter((segment) => segment.length > 0);
+
+  if (segments.length === 0) {
+    return "";
+  }
+
+  const [firstSegment, ...restSegments] = segments;
+  const normalized = [
+    firstSegment[0].toLowerCase() + firstSegment.slice(1),
+    ...restSegments.map((segment) => capitalize(segment.toLowerCase())),
+  ].join("");
+
+  return /^[A-Za-z_$]/.test(normalized) ? normalized : `_${normalized}`;
+}
+
 function capitalize(value: string): string {
   if (value.length === 0) return value;
   return `${value[0].toUpperCase()}${value.slice(1)}`;
@@ -311,31 +355,44 @@ function getTemplateParameterNames(apiPath: string): Set<string> {
   return new Set(matches.map((match) => match.slice(1, -1)));
 }
 
-function resolveParameterTypeExpression(
+function resolveParameterTypeReference(
   entry: OperationEntry,
   context: NormalizationContext,
   location: "path" | "query",
-): string {
+): NormalizedTypeReference | null {
   const effectiveParameters = getEffectiveParametersByLocation(entry, location);
   if (effectiveParameters.length === 0) {
-    return "never";
+    return null;
   }
 
-  const schemaTypeExpr = resolveAlias(
+  const schemaTypeRef = resolveAlias(
     context,
     effectiveParameters.map((parameter) => parameter.name),
     entry.operation.tags?.[0],
   );
-  if (schemaTypeExpr) {
-    return schemaTypeExpr;
+  if (schemaTypeRef) {
+    return schemaTypeRef;
   }
 
   const rawParameters = getParametersByLocation(entry.operation, location);
+  const typeName = allocateOperationTypeName(
+    context,
+    entry.funcName,
+    location === "path" ? "Path" : "Query",
+  );
   if (hasSameParameterNames(rawParameters, effectiveParameters)) {
-    return `operations['${entry.operationId}']['parameters']['${location}']`;
+    return {
+      aliasDefinitionExpr: `operations['${entry.operationId}']['parameters']['${location}']`,
+      sourceExpr: `operations['${entry.operationId}']['parameters']['${location}']`,
+      typeName,
+    };
   }
 
-  return renderInlineParameterObject(effectiveParameters);
+  return {
+    aliasDefinitionExpr: renderInlineParameterObject(effectiveParameters),
+    sourceExpr: renderInlineParameterObject(effectiveParameters),
+    typeName,
+  };
 }
 
 function normalizeOperation(
@@ -348,7 +405,7 @@ function normalizeOperation(
   const pathChannel = normalizeParameterChannel(entry, context, "path");
   const queryChannel = normalizeParameterChannel(entry, context, "query");
   const bodyChannel = normalizeBodyChannel(entry, context);
-  const responseTypeExpr = resolveResponseTypeExpression(entry, context, successResponse);
+  const responseTypeRef = resolveResponseTypeReference(entry, context, successResponse);
 
   return {
     bodyChannel,
@@ -358,9 +415,9 @@ function normalizeOperation(
     pathChannel,
     pathInvocationExpr: pathChannel.present ? `${builderAlias}(options.path)` : `${builderAlias}()`,
     queryChannel,
-    requestFunction: responseTypeExpr ? requestFunctionNames.json : requestFunctionNames.void,
-    responseTypeExpr,
-    returnTypeExpr: responseTypeExpr ? `Promise<${responseTypeExpr}>` : "Promise<void>",
+    requestFunction: responseTypeRef ? requestFunctionNames.json : requestFunctionNames.void,
+    responseTypeRef,
+    returnTypeExpr: responseTypeRef ? `Promise<${responseTypeRef.typeName}>` : "Promise<void>",
   };
 }
 
@@ -374,14 +431,14 @@ function normalizeParameterChannel(
     return {
       present: false,
       required: false,
-      typeExpr: null,
+      typeRef: null,
     };
   }
 
   return {
     present: true,
     required: hasRequiredChannel(parameters),
-    typeExpr: resolveParameterTypeExpression(entry, context, location),
+    typeRef: resolveParameterTypeReference(entry, context, location),
   };
 }
 
@@ -389,58 +446,68 @@ function normalizeBodyChannel(
   entry: OperationEntry,
   context: NormalizationContext,
 ): NormalizedChannel {
-  const typeExpr = resolveRequestBodyTypeExpression(entry, context);
-  if (!typeExpr) {
+  const typeRef = resolveRequestBodyTypeReference(entry, context);
+  if (!typeRef) {
     return {
       present: false,
       required: false,
-      typeExpr: null,
+      typeRef: null,
     };
   }
 
   return {
     present: true,
     required: entry.operation.requestBody?.required !== false,
-    typeExpr,
+    typeRef,
   };
 }
 
-function resolveRequestBodyTypeExpression(
+function resolveRequestBodyTypeReference(
   entry: OperationEntry,
   context: NormalizationContext,
-): string | null {
+): NormalizedTypeReference | null {
   const jsonBody = getJsonRequestBody(entry.operation);
   if (!jsonBody) {
     return null;
   }
 
-  const schemaTypeExpr = resolveSchemaTypeExpression(context, jsonBody.schema);
-  if (schemaTypeExpr) {
-    return schemaTypeExpr;
+  const schemaTypeRef = resolveSchemaTypeReference(context, jsonBody.schema);
+  if (schemaTypeRef) {
+    return schemaTypeRef;
   }
 
-  return `operations['${entry.operationId}']['requestBody']['content']['application/json']`;
+  return {
+    aliasDefinitionExpr: `operations['${entry.operationId}']['requestBody']['content']['application/json']`,
+    sourceExpr: `operations['${entry.operationId}']['requestBody']['content']['application/json']`,
+    typeName: allocateOperationTypeName(context, entry.funcName, "Request"),
+  };
 }
 
-function resolveResponseTypeExpression(
+function resolveResponseTypeReference(
   entry: OperationEntry,
   context: NormalizationContext,
   successResponse: SuccessResponseInfo,
-): string | null {
+): NormalizedTypeReference | null {
   if (!successResponse.hasJsonBody) {
     return null;
   }
 
   const response = entry.operation.responses?.[successResponse.statusKey];
   const jsonContent = response?.content?.["application/json"];
-  const schemaTypeExpr = resolveSchemaTypeExpression(context, jsonContent?.schema);
-  if (schemaTypeExpr) {
-    return schemaTypeExpr;
+  const schemaTypeRef = resolveSchemaTypeReference(context, jsonContent?.schema);
+  if (schemaTypeRef) {
+    return schemaTypeRef;
   }
 
-  return `operations['${entry.operationId}']['responses'][${formatStatusKey(
-    successResponse.statusKey,
-  )}]['content']['application/json']`;
+  return {
+    aliasDefinitionExpr: `operations['${entry.operationId}']['responses'][${formatStatusKey(
+      successResponse.statusKey,
+    )}]['content']['application/json']`,
+    sourceExpr: `operations['${entry.operationId}']['responses'][${formatStatusKey(
+      successResponse.statusKey,
+    )}]['content']['application/json']`,
+    typeName: allocateOperationTypeName(context, entry.funcName, "Response"),
+  };
 }
 
 function hasSameParameterNames(left: OpenAPIParameter[], right: OpenAPIParameter[]): boolean {
@@ -457,7 +524,7 @@ function resolveAlias(
   context: NormalizationContext,
   parameterNames: string[],
   tag?: string,
-): string | undefined {
+): NormalizedTypeReference | undefined {
   const key = [...parameterNames].sort().join(",");
   const candidates = context.schemaAliasIndex.get(key);
   if (!candidates || candidates.length === 0) {
@@ -465,7 +532,7 @@ function resolveAlias(
   }
 
   if (candidates.length === 1) {
-    return createSchemaTypeExpression(candidates[0]);
+    return createSchemaTypeReference(candidates[0]);
   }
 
   if (tag) {
@@ -473,17 +540,17 @@ function resolveAlias(
     const prefix = `${singularTag[0]?.toUpperCase() ?? ""}${singularTag.slice(1)}`;
     const match = candidates.find((candidate) => candidate.startsWith(prefix));
     if (match) {
-      return createSchemaTypeExpression(match);
+      return createSchemaTypeReference(match);
     }
   }
 
-  return createSchemaTypeExpression(candidates[0]);
+  return createSchemaTypeReference(candidates[0]);
 }
 
-function resolveSchemaTypeExpression(
+function resolveSchemaTypeReference(
   context: NormalizationContext,
   schema: unknown,
-): string | undefined {
+): NormalizedTypeReference | undefined {
   const ref = readSchemaRef(schema);
   if (!ref) {
     return undefined;
@@ -494,11 +561,15 @@ function resolveSchemaTypeExpression(
     return undefined;
   }
 
-  return createSchemaTypeExpression(schemaName);
+  return createSchemaTypeReference(schemaName);
 }
 
-function createSchemaTypeExpression(schemaName: string): string {
-  return `components['schemas']['${schemaName}']`;
+function createSchemaTypeReference(schemaName: string): NormalizedTypeReference {
+  return {
+    aliasDefinitionExpr: null,
+    sourceExpr: `components['schemas']['${schemaName}']`,
+    typeName: schemaName,
+  };
 }
 
 function readSchemaRef(schema: unknown): string | undefined {
@@ -530,6 +601,61 @@ function renderPrimitiveSchemaType(schema: OpenAPIParameter["schema"]): string {
   }
 
   return mapPrimitiveType(type);
+}
+
+function allocateOperationTypeName(
+  context: NormalizationContext,
+  funcName: string,
+  suffix: "Path" | "Query" | "Request" | "Response",
+): string {
+  const preferredName = `${capitalize(funcName)}${suffix}`;
+  if (!context.usedTypeNames.has(preferredName)) {
+    context.usedTypeNames.add(preferredName);
+    return preferredName;
+  }
+
+  let counter = 2;
+  let candidate = `${preferredName}_${counter}`;
+  while (context.usedTypeNames.has(candidate)) {
+    counter += 1;
+    candidate = `${preferredName}_${counter}`;
+  }
+
+  context.usedTypeNames.add(candidate);
+  return candidate;
+}
+
+function collectTypeAliases(operations: NormalizedOperation[]): TypeAliasDefinition[] {
+  const aliases = new Map<string, string>();
+
+  for (const operation of operations) {
+    collectTypeAlias(aliases, operation.pathChannel.typeRef);
+    collectTypeAlias(aliases, operation.queryChannel.typeRef);
+    collectTypeAlias(aliases, operation.bodyChannel.typeRef);
+    collectTypeAlias(aliases, operation.responseTypeRef);
+  }
+
+  return [...aliases.entries()]
+    .map(([typeName, definitionExpr]) => ({ definitionExpr, typeName }))
+    .sort((left, right) => left.typeName.localeCompare(right.typeName));
+}
+
+function collectTypeAlias(
+  aliases: Map<string, string>,
+  typeRef: NormalizedTypeReference | null,
+): void {
+  if (!typeRef || typeRef.aliasDefinitionExpr == null) {
+    return;
+  }
+
+  const existing = aliases.get(typeRef.typeName);
+  if (existing && existing !== typeRef.aliasDefinitionExpr) {
+    throw new Error(
+      `Conflicting generated type alias "${typeRef.typeName}" with incompatible definitions.`,
+    );
+  }
+
+  aliases.set(typeRef.typeName, typeRef.aliasDefinitionExpr);
 }
 
 function mapPrimitiveType(type: string): string {

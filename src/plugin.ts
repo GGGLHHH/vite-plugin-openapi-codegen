@@ -5,8 +5,14 @@ import { pathToFileURL } from "node:url";
 import type { Plugin, ResolvedConfig } from "vite-plus";
 import { parse as parseYaml } from "yaml";
 
-import { renderApiSource, renderClientSource } from "./ast.ts";
-import type { NormalizedChannel, OpenAPISpec, OperationEntry } from "./normalization.ts";
+import { renderApiSource, renderClientSource, renderOperationTypeAliases } from "./ast.ts";
+import type {
+  NormalizedChannel,
+  NormalizedTypeReference,
+  OpenAPISpec,
+  OperationEntry,
+  TypeAliasDefinition,
+} from "./normalization.ts";
 import {
   buildClientRenderModelFromOperations,
   collectOperations,
@@ -49,6 +55,8 @@ export interface Options {
   stripPrefix?: boolean;
   /** HTTP client configuration */
   httpClient?: HttpClientConfig;
+  /** Generate and consume top-level type aliases. Default: false */
+  typeAliases?: boolean;
 }
 
 const GENERATED_HEADER = [
@@ -58,6 +66,7 @@ const GENERATED_HEADER = [
 
 interface GeneratedArtifacts {
   api: string;
+  apiTypes?: string;
   client: string;
 }
 
@@ -66,9 +75,22 @@ interface LoadedOpenAPIInput {
   spec: OpenAPISpec;
 }
 
-async function generateApiTypes(source: string | URL, outputDir: string): Promise<void> {
+async function generateApiTypes(
+  source: string | URL,
+  outputDir: string,
+  useTypeAliases: boolean,
+): Promise<void> {
   const { default: openapiTS, astToString } = await import("openapi-typescript");
-  const ast = await openapiTS(source);
+  const ast = await openapiTS(
+    source,
+    useTypeAliases
+      ? {
+          rootTypes: true,
+          rootTypesKeepCasing: true,
+          rootTypesNoSchemaPrefix: true,
+        }
+      : undefined,
+  );
   const contents = astToString(ast);
   writeFileSync(
     resolve(outputDir, "api-types.d.ts"),
@@ -81,57 +103,92 @@ function createApiEntries(
     entry: { funcName: string; group: string; strippedPath: string };
     pathChannel: NormalizedChannel;
   }>,
+  useTypeAliases: boolean,
 ) {
   return normalizedOps.map((op) => ({
     funcName: op.entry.funcName,
     group: op.entry.group,
-    pathTypeExpr: op.pathChannel.present ? op.pathChannel.typeExpr : null,
+    pathTypeExpr:
+      op.pathChannel.typeRef == null
+        ? null
+        : useTypeAliases
+          ? op.pathChannel.typeRef.typeName
+          : op.pathChannel.typeRef.sourceExpr,
     strippedPath: op.entry.strippedPath,
   }));
 }
 
-function createClientRenderModel(model: {
-  needsSearchParamsHelper: boolean;
-  operations: Array<{
-    bodyChannel: NormalizedChannel;
-    builderAlias: string;
-    entry: { funcName: string; group: string; method: string };
-    optionTypeName: string;
-    pathChannel: NormalizedChannel;
-    pathInvocationExpr: string;
-    queryChannel: NormalizedChannel;
-    requestFunction: string;
-    responseTypeExpr: string | null;
-    returnTypeExpr: string;
-  }>;
-}) {
+function createClientRenderModel(
+  model: {
+    needsSearchParamsHelper: boolean;
+    operations: Array<{
+      bodyChannel: NormalizedChannel;
+      builderAlias: string;
+      entry: { funcName: string; group: string; method: string };
+      optionTypeName: string;
+      pathChannel: NormalizedChannel;
+      pathInvocationExpr: string;
+      queryChannel: NormalizedChannel;
+      requestFunction: string;
+      responseTypeRef: NormalizedTypeReference | null;
+      returnTypeExpr: string;
+    }>;
+    typeAliases: TypeAliasDefinition[];
+  },
+  useTypeAliases: boolean,
+) {
+  const resolveTypeExpr = (typeRef: NormalizedTypeReference | null) =>
+    typeRef == null ? null : useTypeAliases ? typeRef.typeName : typeRef.sourceExpr;
+
+  const resolveReturnTypeExpr = (operation: {
+    responseTypeRef: NormalizedTypeReference | null;
+  }) => {
+    const responseTypeExpr = resolveTypeExpr(operation.responseTypeRef);
+    return responseTypeExpr ? `Promise<${responseTypeExpr}>` : "Promise<void>";
+  };
+
   return {
     needsSearchParamsHelper: model.needsSearchParamsHelper,
     operations: model.operations.map((operation) => ({
-      bodyChannel: operation.bodyChannel,
+      bodyChannel: resolveChannel(operation.bodyChannel, useTypeAliases),
       builderAlias: operation.builderAlias,
       funcName: operation.entry.funcName,
       group: operation.entry.group,
       methodUpper: operation.entry.method.toUpperCase(),
       optionTypeName: operation.optionTypeName,
-      pathChannel: operation.pathChannel,
+      pathChannel: resolveChannel(operation.pathChannel, useTypeAliases),
       pathInvocationExpr: operation.pathInvocationExpr,
-      queryChannel: operation.queryChannel,
+      queryChannel: resolveChannel(operation.queryChannel, useTypeAliases),
       requestFunction: operation.requestFunction,
-      responseTypeExpr: operation.responseTypeExpr,
-      returnTypeExpr: operation.returnTypeExpr,
+      responseTypeExpr: resolveTypeExpr(operation.responseTypeRef),
+      returnTypeExpr: resolveReturnTypeExpr(operation),
     })),
+  };
+}
+
+function resolveChannel(channel: NormalizedChannel, useTypeAliases: boolean): NormalizedChannel {
+  if (!channel.typeRef) {
+    return channel;
+  }
+
+  return {
+    ...channel,
+    typeRef: {
+      ...channel.typeRef,
+      sourceExpr: useTypeAliases ? channel.typeRef.typeName : channel.typeRef.sourceExpr,
+    },
   };
 }
 
 export function renderGeneratedArtifacts(
   spec: OpenAPISpec,
-  options: Pick<Options, "httpClient" | "pathPrefix" | "stripPrefix">,
+  options: Pick<Options, "httpClient" | "pathPrefix" | "stripPrefix" | "typeAliases">,
   preCollectedOperations?: OperationEntry[],
 ): GeneratedArtifacts {
   const pathPrefix = options.pathPrefix ?? "/api/";
   const stripPrefix = options.stripPrefix ?? true;
   const httpClient = resolveHttpClientConfig(options.httpClient);
+  const useTypeAliases = options.typeAliases ?? false;
   const operations = preCollectedOperations ?? collectOperations(spec, pathPrefix, stripPrefix);
   const clientModel = buildClientRenderModelFromOperations(operations, spec, {
     json: httpClient.jsonFunction,
@@ -142,8 +199,18 @@ export function renderGeneratedArtifacts(
   }
 
   return {
-    api: renderApiSource(createApiEntries(clientModel.operations), GENERATED_HEADER),
-    client: renderClientSource(createClientRenderModel(clientModel), GENERATED_HEADER, httpClient),
+    api: renderApiSource(
+      createApiEntries(clientModel.operations, useTypeAliases),
+      GENERATED_HEADER,
+    ),
+    client: renderClientSource(
+      createClientRenderModel(clientModel, useTypeAliases),
+      GENERATED_HEADER,
+      httpClient,
+    ),
+    ...(useTypeAliases && clientModel.typeAliases.length > 0
+      ? { apiTypes: renderOperationTypeAliases(clientModel.typeAliases) }
+      : {}),
   };
 }
 
@@ -205,7 +272,10 @@ async function generate(root: string, options: Options): Promise<void> {
   const artifacts = renderGeneratedArtifacts(spec, options, operations);
 
   warnOnParameterLocationMismatch(operations);
-  await generateApiTypes(apiTypesSource, outputDir);
+  await generateApiTypes(apiTypesSource, outputDir, options.typeAliases ?? false);
+  if (artifacts.apiTypes) {
+    writeFileSync(resolve(outputDir, "api-types.d.ts"), artifacts.apiTypes, { flag: "a" });
+  }
   writeFileSync(resolve(outputDir, "api.ts"), artifacts.api);
   writeFileSync(resolve(outputDir, "client.ts"), artifacts.client);
 }
