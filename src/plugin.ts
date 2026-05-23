@@ -1,7 +1,9 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 
 import type { Plugin, ResolvedConfig } from "vite-plus";
+import { parse as parseYaml } from "yaml";
 
 import { renderApiSource, renderClientSource } from "./ast.ts";
 import type { NormalizedChannel, OpenAPISpec, OperationEntry } from "./normalization.ts";
@@ -37,7 +39,7 @@ function resolveHttpClientConfig(config?: HttpClientConfig): Required<HttpClient
 }
 
 export interface Options {
-  /** Path to openapi.json (relative to project root) */
+  /** Path or HTTP(S) URL to an OpenAPI JSON/YAML document */
   input: string;
   /** Output directory for generated files (relative to project root) */
   output: string;
@@ -59,9 +61,14 @@ interface GeneratedArtifacts {
   client: string;
 }
 
-async function generateApiTypes(inputPath: string, outputDir: string): Promise<void> {
+interface LoadedOpenAPIInput {
+  apiTypesSource: string | URL;
+  spec: OpenAPISpec;
+}
+
+async function generateApiTypes(source: string | URL, outputDir: string): Promise<void> {
   const { default: openapiTS, astToString } = await import("openapi-typescript");
-  const ast = await openapiTS(new URL(`file://${inputPath}`));
+  const ast = await openapiTS(source);
   const contents = astToString(ast);
   writeFileSync(
     resolve(outputDir, "api-types.d.ts"),
@@ -140,24 +147,72 @@ export function renderGeneratedArtifacts(
   };
 }
 
+async function loadOpenAPIInput(root: string, input: string): Promise<LoadedOpenAPIInput> {
+  if (isHttpUrl(input)) {
+    const sourceText = await fetchRemoteOpenAPIInput(input);
+
+    return {
+      apiTypesSource: sourceText,
+      spec: parseOpenAPISpec(sourceText, input),
+    };
+  }
+
+  const inputPath = resolve(root, input);
+  const sourceText = readFileSync(inputPath, "utf-8");
+
+  return {
+    apiTypesSource: pathToFileURL(inputPath),
+    spec: parseOpenAPISpec(sourceText, inputPath),
+  };
+}
+
+function isHttpUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+async function fetchRemoteOpenAPIInput(input: string): Promise<string> {
+  const response = await fetch(input);
+  if (!response.ok) {
+    throw new Error(
+      `[openapi-codegen] Failed to fetch OpenAPI document from ${input}: ${response.status} ${response.statusText}`,
+    );
+  }
+
+  return response.text();
+}
+
+function parseOpenAPISpec(sourceText: string, inputLabel: string): OpenAPISpec {
+  const parsed = parseYaml(sourceText);
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error(`[openapi-codegen] Expected OpenAPI document object from ${inputLabel}`);
+  }
+
+  return parsed as OpenAPISpec;
+}
+
 async function generate(root: string, options: Options): Promise<void> {
-  const inputPath = resolve(root, options.input);
   const outputDir = resolve(root, options.output);
   mkdirSync(outputDir, { recursive: true });
-  const spec = JSON.parse(readFileSync(inputPath, "utf-8")) as OpenAPISpec;
+  const { apiTypesSource, spec } = await loadOpenAPIInput(root, options.input);
   const pathPrefix = options.pathPrefix ?? "/api/";
   const stripPrefix = options.stripPrefix ?? true;
   const operations = collectOperations(spec, pathPrefix, stripPrefix);
   const artifacts = renderGeneratedArtifacts(spec, options, operations);
 
   warnOnParameterLocationMismatch(operations);
-  await generateApiTypes(inputPath, outputDir);
+  await generateApiTypes(apiTypesSource, outputDir);
   writeFileSync(resolve(outputDir, "api.ts"), artifacts.api);
   writeFileSync(resolve(outputDir, "client.ts"), artifacts.client);
 }
 
 export function openapiCodegen(options: Options): Plugin {
   let root = process.cwd();
+  let command: ResolvedConfig["command"] = "build";
 
   return {
     name: "openapi-codegen",
@@ -165,23 +220,49 @@ export function openapiCodegen(options: Options): Plugin {
 
     configResolved(config: ResolvedConfig) {
       root = config.root;
+      command = config.command;
     },
 
     async buildStart() {
-      await generate(root, options);
+      if (command === "serve") {
+        void runDevelopmentGeneration(root, options);
+        return;
+      }
+
+      return;
     },
 
     configureServer(server) {
+      if (isHttpUrl(options.input)) {
+        return;
+      }
+
       const inputPath = resolve(root, options.input);
 
       server.watcher.add(inputPath);
       server.watcher.on("change", async (path) => {
         if (path === inputPath) {
           console.log("[openapi-codegen] openapi.json changed, regenerating...");
-          await generate(root, options);
-          console.log("[openapi-codegen] regeneration complete.");
+          void runDevelopmentGeneration(root, options, {
+            onSuccess: () => {
+              console.log("[openapi-codegen] regeneration complete.");
+            },
+          });
         }
       });
     },
   };
+}
+
+async function runDevelopmentGeneration(
+  root: string,
+  options: Options,
+  handlers?: { onSuccess?: () => void },
+): Promise<void> {
+  try {
+    await generate(root, options);
+    handlers?.onSuccess?.();
+  } catch (error) {
+    console.error("[openapi-codegen] generation failed during dev mode.", error);
+  }
 }

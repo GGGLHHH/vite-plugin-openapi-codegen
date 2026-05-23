@@ -10,7 +10,7 @@
     "allowImportingTsExtensions": true,
     "types": ["node"],
     "paths": {
-      "@example/http": ["./src/http.ts"]
+      "@example/http": ["../src/http.ts"]
     }
   },
   "include": ["src", "vite.config.ts"]

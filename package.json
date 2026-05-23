@@ -38,6 +38,7 @@
   "scripts": {
     "build": "vp pack",
     "dev": "vp pack --watch",
+    "dev:examples": "node scripts/dev-examples.mjs",
     "test": "vp test",
     "check": "vp check",
     "release": "bumpp --no-verify",
@@ -45,7 +46,8 @@
   },
   "dependencies": {
     "openapi-typescript": "^7.13.0",
-    "typescript": ">=5.0.0"
+    "typescript": ">=5.0.0",
+    "yaml": "^2.9.0"
   },
   "devDependencies": {
     "@types/node": "^25.5.0",

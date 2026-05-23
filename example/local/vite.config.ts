@@ -3,14 +3,14 @@ import { fileURLToPath } from "node:url";
 
 import { defineConfig } from "vite-plus";
 
-import { openapiCodegen } from "../src/index.ts";
+import { openapiCodegen } from "../../src/index.ts";
 
 const exampleRoot = fileURLToPath(new URL(".", import.meta.url));
 
 export default defineConfig({
   plugins: [
     openapiCodegen({
-      input: "openapi.json",
+      input: "../openapi.json",
       output: "src/generated",
       httpClient: {
         module: "@example/http",
@@ -23,7 +23,7 @@ export default defineConfig({
   ],
   resolve: {
     alias: {
-      "@example/http": resolve(exampleRoot, "src/http.ts"),
+      "@example/http": resolve(exampleRoot, "../src/http.ts"),
     },
   },
 });

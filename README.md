@@ -1,14 +1,14 @@
 # vite-plugin-openapi-codegen
 
-Generate typed API clients and path builders from an OpenAPI document during Vite builds.
+Generate typed API clients and path builders from a local or online OpenAPI document during Vite dev runs.
 
-The plugin reads your OpenAPI spec, runs `openapi-typescript`, and emits three files into your target directory:
+The plugin reads your OpenAPI JSON or YAML spec, runs `openapi-typescript`, and emits three files into your target directory:
 
 - `api-types.d.ts` for raw OpenAPI-derived types
 - `api.ts` for path builder functions
 - `client.ts` for typed request helpers
 
-It also watches the input spec in dev mode and regenerates the files when the spec changes.
+It also watches local input specs in dev mode and regenerates the files when the spec changes. In dev mode, generation runs in the background so Vite can finish starting even if the remote spec is temporarily unavailable. Online `http://` and `https://` inputs are fetched once when Vite starts. Build mode skips the plugin entirely.
 
 ## Installation
 
@@ -36,7 +36,23 @@ export default defineConfig({
 });
 ```
 
-When you run `vp dev` or `vp build`, the plugin generates:
+Online YAML inputs use the same option:
+
+```ts
+import { defineConfig } from "vite-plus";
+import { openapiCodegen } from "vite-plugin-openapi-codegen";
+
+export default defineConfig({
+  plugins: [
+    openapiCodegen({
+      input: "https://example.com/openapi.yaml",
+      output: "src/generated",
+    }),
+  ],
+});
+```
+
+When you run `vp dev`, the plugin generates:
 
 ```text
 src/generated/
@@ -45,38 +61,40 @@ src/generated/
   client.ts
 ```
 
-## Real Example Project
+## Example Projects
 
-This repository includes a real minimal Vite project under `example/` that demonstrates
-automatic generation from `vite.config.ts`.
+This repository includes two minimal Vite demos under `example/`:
 
-Key files:
+- `example/local` demonstrates generation from the shared local file `example/openapi.json`
+- `example/online` demonstrates generation from `http://localhost:8080/openapi.yaml`
+- Both demos reuse the shared runtime helper in `example/src/http.ts`
 
-- `example/vite.config.ts` wires the plugin into Vite
-- `example/openapi.json` is the input spec
-- `example/src/http.ts` provides the runtime symbols used by generated clients
-- `example/src/generated/*` is generated during build/dev and is gitignored
-
-Run the example build:
+Run the local demo in dev mode:
 
 ```bash
-vp build example --config ./example/vite.config.ts
+vp dev example/local --config ./example/local/vite.config.ts
 ```
 
-Run the example dev server:
+Run the online demo in dev mode:
 
 ```bash
-vp example --config ./example/vite.config.ts
+vp dev example/online --config ./example/online/vite.config.ts
 ```
 
-After either command, generated files are written to:
+Start both demos together with the shared mock OpenAPI server:
 
-```text
-example/src/generated/
-  api-types.d.ts
-  api.ts
-  client.ts
+```bash
+vp run dev:examples
 ```
+
+Build either demo shell without running code generation:
+
+```bash
+vp build example/local --config ./example/local/vite.config.ts
+vp build example/online --config ./example/online/vite.config.ts
+```
+
+When you run the dev server, generated files are written to `example/<demo>/src/generated/` and are ignored by git.
 
 ## Runtime Contract
 
@@ -195,7 +213,9 @@ interface Options {
 
 ### `input`
 
-Path to the OpenAPI JSON file, relative to the Vite project root.
+Path or URL to the OpenAPI JSON/YAML document. Local paths are resolved relative to the Vite project root and watched in dev mode. Online `http://` and `https://` URLs are fetched once at startup and are not watched.
+
+In dev mode, generation errors are logged and do not stop Vite from starting. In build mode, the plugin is skipped entirely.
 
 ### `output`
 
@@ -244,5 +264,6 @@ vp pack
 To validate the real example project as part of local development:
 
 ```bash
-vp build example --config ./example/vite.config.ts
+vp build example/local --config ./example/local/vite.config.ts
+vp build example/online --config ./example/online/vite.config.ts
 ```

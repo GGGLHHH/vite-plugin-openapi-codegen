@@ -1,11 +1,13 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { createServer } from "node:http";
+import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 
 import * as ts from "typescript";
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
 
-import { renderGeneratedArtifacts } from "../src/plugin.ts";
+import { openapiCodegen, renderGeneratedArtifacts } from "../src/plugin.ts";
 
 describe("vite-plugin-openapi-codegen", () => {
   it("generates path builders and typed request client functions", () => {
@@ -140,6 +142,109 @@ describe("vite-plugin-openapi-codegen", () => {
     expectValidTypeScript(files.client, "client.ts");
   });
 
+  it("generates artifacts from an online YAML OpenAPI URL at startup", async () => {
+    const tempRoot = mkdtempSync(resolve(tmpdir(), "openapi-codegen-"));
+    const outputDir = resolve(tempRoot, "generated");
+    const server = createServer((_, response) => {
+      response.writeHead(200, { "content-type": "application/yaml" });
+      response.end(createYamlSpec());
+    });
+
+    try {
+      const input = await listen(server);
+      const plugin = openapiCodegen({
+        input,
+        output: "generated",
+      });
+
+      if (typeof plugin.configResolved !== "function") {
+        throw new Error("Expected configResolved hook");
+      }
+      if (typeof plugin.buildStart !== "function") {
+        throw new Error("Expected buildStart hook");
+      }
+
+      await callConfigResolved(plugin, tempRoot, "serve");
+      await plugin.buildStart.call({} as never, {} as never);
+
+      await waitForFiles(outputDir, ["api-types.d.ts", "api.ts", "client.ts"]);
+
+      const generatedApi = readFileSync(resolve(outputDir, "api.ts"), "utf-8");
+      expect(normalizeGeneratedSource(generatedApi)).toContain(
+        "export function getRemoteStatus(): string {",
+      );
+    } finally {
+      await closeServer(server);
+      rmSync(tempRoot, { force: true, recursive: true });
+    }
+  });
+
+  it("does not block dev startup when online generation fails", async () => {
+    const tempRoot = mkdtempSync(resolve(tmpdir(), "openapi-codegen-"));
+    const server = createServer((_, response) => {
+      response.writeHead(503, { "content-type": "text/plain" });
+      response.end("not ready");
+    });
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    try {
+      const input = await listen(server);
+      const plugin = openapiCodegen({
+        input,
+        output: "generated",
+      });
+
+      if (typeof plugin.configResolved !== "function") {
+        throw new Error("Expected configResolved hook");
+      }
+      if (typeof plugin.buildStart !== "function") {
+        throw new Error("Expected buildStart hook");
+      }
+
+      await callConfigResolved(plugin, tempRoot, "serve");
+      await expect(plugin.buildStart.call({} as never, {} as never)).resolves.toBeUndefined();
+      await waitForCall(consoleErrorSpy);
+    } finally {
+      consoleErrorSpy.mockRestore();
+      await closeServer(server);
+      rmSync(tempRoot, { force: true, recursive: true });
+    }
+  });
+
+  it("skips generation entirely during build mode", async () => {
+    const tempRoot = mkdtempSync(resolve(tmpdir(), "openapi-codegen-"));
+    const server = createServer((_, response) => {
+      response.writeHead(200, { "content-type": "application/yaml" });
+      response.end(createYamlSpec());
+    });
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    try {
+      const input = await listen(server);
+      const plugin = openapiCodegen({
+        input,
+        output: "generated",
+      });
+
+      if (typeof plugin.configResolved !== "function") {
+        throw new Error("Expected configResolved hook");
+      }
+      if (typeof plugin.buildStart !== "function") {
+        throw new Error("Expected buildStart hook");
+      }
+
+      await callConfigResolved(plugin, tempRoot, "build");
+      await plugin.buildStart.call({} as never, {} as never);
+
+      expect(existsSync(resolve(tempRoot, "generated"))).toBe(false);
+      expect(consoleErrorSpy).not.toHaveBeenCalled();
+    } finally {
+      consoleErrorSpy.mockRestore();
+      await closeServer(server);
+      rmSync(tempRoot, { force: true, recursive: true });
+    }
+  });
+
   it("type-aware lint accepts web globals in the example runtime helper", () => {
     expect(() =>
       execFileSync(
@@ -154,32 +259,29 @@ describe("vite-plugin-openapi-codegen", () => {
     ).not.toThrow();
   });
 
-  it("builds the example as a real vite project and generates source files", () => {
-    const { distDir, generatedDir } = getExamplePaths();
+  it("builds both demos as real vite projects without running code generation", () => {
     cleanupExampleArtifacts();
 
     try {
-      buildExampleProject();
+      for (const exampleName of ["local", "online"] as const) {
+        const { distDir, generatedDir } = getExamplePaths(exampleName);
 
-      expect(existsSync(resolve(generatedDir, "api-types.d.ts"))).toBe(true);
-      expect(existsSync(resolve(generatedDir, "types.ts"))).toBe(false);
-      expect(existsSync(resolve(generatedDir, "api.ts"))).toBe(true);
-      expect(existsSync(resolve(generatedDir, "client.ts"))).toBe(true);
-      expect(existsSync(resolve(distDir, "index.html"))).toBe(true);
+        buildExampleProject(exampleName);
 
-      const generatedClient = readFileSync(resolve(generatedDir, "client.ts"), "utf-8");
-      expect(generatedClient).toContain('from "@example/http"');
+        expect(existsSync(resolve(distDir, "index.html"))).toBe(true);
+        expect(existsSync(resolve(generatedDir))).toBe(false);
+      }
     } finally {
       cleanupExampleArtifacts();
     }
   });
 
-  it("keeps the example tsconfig type-safe", () => {
+  it("keeps both demo tsconfig files type-safe", () => {
     cleanupExampleArtifacts();
 
     try {
-      buildExampleProject();
-      expect(getProjectTypeErrors("example/tsconfig.json")).toEqual([]);
+      expect(getProjectTypeErrors("example/local/tsconfig.json")).toEqual([]);
+      expect(getProjectTypeErrors("example/online/tsconfig.json")).toEqual([]);
     } finally {
       cleanupExampleArtifacts();
     }
@@ -323,35 +425,148 @@ function normalizeGeneratedSource(sourceText: string): string {
   return sourceText.replaceAll('"', "'").replaceAll(";", "").replace(/\s+/g, " ").trim();
 }
 
-function getExamplePaths() {
+async function callConfigResolved(
+  plugin: ReturnType<typeof openapiCodegen>,
+  root: string,
+  command: "build" | "serve" = "build",
+): Promise<void> {
+  const hook = plugin.configResolved as (config: {
+    command: "build" | "serve";
+    root: string;
+  }) => void | Promise<void>;
+  await hook({ command, root });
+}
+
+async function waitForFiles(outputDir: string, fileNames: string[]): Promise<void> {
+  const maxAttempts = 50;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    if (fileNames.every((fileName) => existsSync(resolve(outputDir, fileName)))) {
+      return;
+    }
+
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 10));
+  }
+
+  throw new Error(`Timed out waiting for generated files in ${outputDir}`);
+}
+
+async function waitForCall(spy: { mock: { calls: unknown[][] } }): Promise<void> {
+  for (let attempt = 0; attempt < 50; attempt++) {
+    if (spy.mock.calls.length > 0) {
+      return;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+
+  throw new Error("Expected spy to be called");
+}
+
+async function listen(server: ReturnType<typeof createServer>): Promise<string> {
+  await new Promise<void>((resolveReady, rejectReady) => {
+    server.once("error", rejectReady);
+    server.listen(0, "127.0.0.1", () => {
+      server.off("error", rejectReady);
+      resolveReady();
+    });
+  });
+
+  const address = server.address();
+  if (!address || typeof address === "string") {
+    throw new Error("Failed to resolve server address");
+  }
+
+  return `http://127.0.0.1:${address.port}/openapi.yaml`;
+}
+
+async function closeServer(server: ReturnType<typeof createServer>): Promise<void> {
+  await new Promise<void>((resolveClosed, rejectClosed) => {
+    server.close((error) => {
+      if (error) {
+        rejectClosed(error);
+        return;
+      }
+
+      resolveClosed();
+    });
+  });
+}
+
+function getExamplePaths(exampleName: "local" | "online") {
   const projectRoot = resolve(import.meta.dirname, "..");
+  const exampleRoot = resolve(projectRoot, "example", exampleName);
 
   return {
-    distDir: resolve(projectRoot, "example/dist"),
-    generatedDir: resolve(projectRoot, "example/src/generated"),
+    distDir: resolve(exampleRoot, "dist"),
+    generatedDir: resolve(exampleRoot, "src/generated"),
     projectRoot,
   };
 }
 
 function cleanupExampleArtifacts() {
-  const { distDir, generatedDir } = getExamplePaths();
+  const exampleRoot = resolve(import.meta.dirname, "..", "example");
 
-  rmSync(generatedDir, { force: true, recursive: true });
-  rmSync(distDir, { force: true, recursive: true });
+  for (const entry of readdirSync(exampleRoot, { withFileTypes: true })) {
+    if (!entry.isDirectory()) {
+      continue;
+    }
+
+    const examplePath = resolve(exampleRoot, entry.name);
+    rmSync(resolve(examplePath, "dist"), { force: true, recursive: true });
+    rmSync(resolve(examplePath, "src/generated"), { force: true, recursive: true });
+  }
 }
 
-function buildExampleProject() {
-  const { projectRoot } = getExamplePaths();
+function buildExampleProject(exampleName: "local" | "online") {
+  const { projectRoot } = getExamplePaths(exampleName);
 
   execFileSync(
     "./node_modules/.bin/vp",
-    ["build", "example", "--config", "./example/vite.config.ts", "--logLevel", "error"],
+    [
+      "build",
+      `example/${exampleName}`,
+      "--config",
+      `./example/${exampleName}/vite.config.ts`,
+      "--logLevel",
+      "error",
+    ],
     {
       cwd: projectRoot,
       encoding: "utf8",
       stdio: "pipe",
     },
   );
+}
+
+function createYamlSpec(): string {
+  return [
+    "openapi: 3.0.0",
+    "info:",
+    "  title: Remote API",
+    "  version: 1.0.0",
+    "paths:",
+    "  /api/remote/status:",
+    "    get:",
+    "      operationId: get_remote_status",
+    "      responses:",
+    "        '200':",
+    "          description: OK",
+    "          content:",
+    "            application/json:",
+    "              schema:",
+    "                $ref: '#/components/schemas/RemoteStatusResponse'",
+    "      tags:",
+    "        - remote",
+    "components:",
+    "  schemas:",
+    "    RemoteStatusResponse:",
+    "      type: object",
+    "      properties:",
+    "        ok:",
+    "          type: boolean",
+    "",
+  ].join("\n");
 }
 
 function createSpec(): Parameters<typeof renderGeneratedArtifacts>[0] {
