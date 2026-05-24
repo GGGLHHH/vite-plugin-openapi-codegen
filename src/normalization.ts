@@ -38,6 +38,7 @@ export type OpenAPIPathItem = Partial<Record<HttpMethod, OpenAPIOperation>>;
 
 export interface OpenAPISchema {
   properties?: Record<string, unknown>;
+  required?: string[];
   type?: string;
 }
 
@@ -495,7 +496,7 @@ function createRequestBodyChannel(
 
   return {
     present: true,
-    required: entry.operation.requestBody?.required !== false,
+    required: entry.operation.requestBody?.required === true,
     typeRef,
   };
 }

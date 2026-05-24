@@ -426,20 +426,21 @@ function createClientFunctionDeclaration(operation: AstClientOperation): ts.Func
   }
 
   if (operation.bodyChannel.present) {
+    const bodyPropertyName = operation.bodyContentType === "json" ? "json" : "body";
+    const bodyAssignment = ts.factory.createObjectLiteralExpression(
+      [
+        ts.factory.createPropertyAssignment(
+          ts.factory.createIdentifier(bodyPropertyName),
+          ts.factory.createPropertyAccessExpression(ts.factory.createIdentifier("options"), "body"),
+        ),
+      ],
+      false,
+    );
+
     if (operation.bodyContentType === "json") {
-      requestProperties.push(
-        ts.factory.createPropertyAssignment(
-          ts.factory.createIdentifier("json"),
-          ts.factory.createPropertyAccessExpression(ts.factory.createIdentifier("options"), "body"),
-        ),
-      );
+      requestProperties.push(createBodyRequestProperty(operation.bodyChannel, bodyAssignment));
     } else {
-      requestProperties.push(
-        ts.factory.createPropertyAssignment(
-          ts.factory.createIdentifier("body"),
-          ts.factory.createPropertyAccessExpression(ts.factory.createIdentifier("options"), "body"),
-        ),
-      );
+      requestProperties.push(createBodyRequestProperty(operation.bodyChannel, bodyAssignment));
     }
 
     if (operation.bodyContentType === "binary") {
@@ -492,6 +493,31 @@ function createClientFunctionDeclaration(operation: AstClientOperation): ts.Func
     ],
     createTypeNodeFromText(operation.returnTypeExpr),
     ts.factory.createBlock([ts.factory.createReturnStatement(requestCall)], true),
+  );
+}
+
+function createBodyRequestProperty(
+  bodyChannel: NormalizedChannel,
+  bodyAssignment: ts.ObjectLiteralExpression,
+): ts.ObjectLiteralElementLike {
+  if (bodyChannel.required) {
+    return bodyAssignment.properties[0];
+  }
+
+  return ts.factory.createSpreadAssignment(
+    ts.factory.createParenthesizedExpression(
+      ts.factory.createConditionalExpression(
+        ts.factory.createBinaryExpression(
+          ts.factory.createPropertyAccessExpression(ts.factory.createIdentifier("options"), "body"),
+          ts.factory.createToken(ts.SyntaxKind.EqualsEqualsEqualsToken),
+          ts.factory.createIdentifier("undefined"),
+        ),
+        ts.factory.createToken(ts.SyntaxKind.QuestionToken),
+        ts.factory.createObjectLiteralExpression([], false),
+        ts.factory.createToken(ts.SyntaxKind.ColonToken),
+        bodyAssignment,
+      ),
+    ),
   );
 }
 

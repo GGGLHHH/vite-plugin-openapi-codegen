@@ -351,6 +351,74 @@ describe("vite-plugin-openapi-codegen", () => {
     expectValidTypeScript(files.client, "client.ts");
   });
 
+  it("treats optional request bodies as optional client options", () => {
+    const files = renderGeneratedArtifacts(
+      {
+        components: {
+          schemas: {
+            RefreshRequest: {
+              properties: {
+                refresh_token: {
+                  type: "string",
+                },
+              },
+              required: ["refresh_token"],
+              type: "object",
+            },
+            TokenResponse: {
+              properties: {
+                token_type: {
+                  type: "string",
+                },
+              },
+              required: ["token_type"],
+              type: "object",
+            },
+          },
+        },
+        paths: {
+          "/api/auth/refresh": {
+            post: {
+              operationId: "refresh_token",
+              requestBody: {
+                content: {
+                  "application/json": {
+                    schema: {
+                      $ref: "#/components/schemas/RefreshRequest",
+                    },
+                  },
+                },
+                required: false,
+              },
+              responses: {
+                200: {
+                  content: {
+                    "application/json": {
+                      schema: {
+                        $ref: "#/components/schemas/TokenResponse",
+                      },
+                    },
+                  },
+                  description: "OK",
+                },
+              },
+              tags: ["auth"],
+            },
+          },
+        },
+      },
+      { typeAliases: true },
+    );
+
+    const normalizedClient = normalizeGeneratedSource(files.client);
+
+    expect(normalizedClient).toContain("body?: RefreshRequest");
+    expect(normalizedClient).toContain(
+      "...(options.body === undefined ? {} : { json: options.body })",
+    );
+    expectValidTypeScript(files.client, "client.ts");
+  });
+
   it("generates artifacts from an online YAML OpenAPI URL at startup", async () => {
     const tempRoot = mkdtempSync(resolve(tmpdir(), "openapi-codegen-"));
     const outputDir = resolve(tempRoot, "generated");
@@ -1033,6 +1101,7 @@ function createSpec(): Parameters<typeof renderGeneratedArtifacts>[0] {
                 },
               },
             },
+            required: true,
           },
           responses: {
             200: {
@@ -1142,6 +1211,7 @@ function createSpec(): Parameters<typeof renderGeneratedArtifacts>[0] {
                 },
               },
             },
+            required: true,
           },
           responses: {
             201: {
