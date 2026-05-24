@@ -8,7 +8,7 @@ The plugin reads your OpenAPI JSON or YAML spec, runs `openapi-typescript`, and 
 - `api.ts` for path builder functions
 - `client.ts` for typed request helpers
 
-It also watches local input specs in dev mode and regenerates the files when the spec changes. In dev mode, generation runs in the background so Vite can finish starting even if the remote spec is temporarily unavailable. Online `http://` and `https://` inputs are fetched once when Vite starts. Build mode skips the plugin entirely.
+It also regenerates local input specs through Vite HMR when the spec changes. In dev mode, generation runs in the background so Vite can finish starting even if the remote spec is temporarily unavailable. Online `http://` and `https://` inputs are fetched once when Vite starts. Build mode skips the plugin entirely. For manual generation, the package also ships a `vg` CLI that reads your local `vite.config.*` and runs the same generator once.
 
 ## Installation
 
@@ -34,6 +34,22 @@ export default defineConfig({
     }),
   ],
 });
+```
+
+If you want to reuse the same configuration outside Vite, run the CLI from the project root:
+
+```bash
+vg
+```
+
+By default, `vg` searches for `vite.config.ts`, `vite.config.mts`, `vite.config.js`, `vite.config.mjs`, `vite.config.cjs`, or `vite.config.cts` in the current working directory. It reads the `openapiCodegen(...)` plugin options from that file, then generates once with those values.
+
+You can also pass explicit flags. CLI flags always win over the config file:
+
+```bash
+vg --root ./example/local
+vg --input openapi.yaml --output src/generated
+vg --path-prefix /v1/ --type-aliases
 ```
 
 Online YAML inputs use the same option:
@@ -233,29 +249,29 @@ interface Options {
 
 ### `input`
 
-Path or URL to the OpenAPI JSON/YAML document. Local paths are resolved relative to the Vite project root and watched in dev mode. Online `http://` and `https://` URLs are fetched once at startup and are not watched.
+Path or URL to the OpenAPI JSON/YAML document. Local paths are resolved relative to the Vite project root and watched in dev mode. Online `http://` and `https://` URLs are fetched once at startup and are not watched. The `vg` CLI reads this value from `vite.config.*` when present, unless you override it with `--input`.
 
 In dev mode, generation errors are logged and do not stop Vite from starting. In build mode, the plugin is skipped entirely.
 
 ### `output`
 
-Directory where generated files are written, relative to the Vite project root.
+Directory where generated files are written, relative to the Vite project root. The `vg` CLI reads this value from `vite.config.*` when present, unless you override it with `--output`.
 
 ### `pathPrefix`
 
-Only paths starting with this prefix are included. The default is `"/api/"`.
+Only paths starting with this prefix are included. The default is `"/api/"`. The `vg` CLI reads this value from `vite.config.*` when present, unless you override it with `--path-prefix`.
 
 ### `stripPrefix`
 
-Controls whether the `pathPrefix` is removed from generated path builders. The default is `true`.
+Controls whether the `pathPrefix` is removed from generated path builders. The default is `true`. The `vg` CLI reads this value from `vite.config.*` when present, unless you override it with `--strip-prefix` or `--no-strip-prefix`.
 
 ### `typeAliases`
 
-When enabled, the plugin generates top-level aliases for schema and operation types and makes the emitted `api.ts` and `client.ts` import those shorter names. The suffixes stay intact, so generated names remain readable while avoiding long `components["schemas"][...]` and `operations["..."][...]` chains. The default is `false` to preserve existing output.
+When enabled, the plugin generates top-level aliases for schema and operation types and makes the emitted `api.ts` and `client.ts` import those shorter names. The suffixes stay intact, so generated names remain readable while avoiding long `components["schemas"][...]` and `operations["..."][...]` chains. The default is `false` to preserve existing output. The `vg` CLI reads this value from `vite.config.*` when present, unless you override it with `--type-aliases` or `--no-type-aliases`.
 
 ### `httpClient`
 
-Overrides the runtime import path and symbol names used by generated clients.
+Overrides the runtime import path and symbol names used by generated clients. The `vg` CLI reads this object from `vite.config.*` when present, unless you override the corresponding HTTP client flags.
 
 ## Programmatic Usage
 

@@ -1,9 +1,24 @@
 import { defineConfig } from "vite-plus";
 
 export default defineConfig({
-  pack: {
-    exports: true,
-  },
+  pack: [
+    {
+      entry: {
+        index: "./src/index.ts",
+      },
+      exports: true,
+    },
+    {
+      entry: {
+        cli: "./src/cli.ts",
+      },
+      exports: {
+        bin: {
+          vg: "./src/cli.ts",
+        },
+      },
+    },
+  ],
   lint: {
     options: {
       typeAware: true,

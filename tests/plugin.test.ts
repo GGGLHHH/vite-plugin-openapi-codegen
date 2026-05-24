@@ -1,8 +1,10 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdir, symlink } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 
 import * as ts from "typescript";
 import { describe, expect, it, vi } from "vite-plus/test";
@@ -300,6 +302,56 @@ describe("vite-plugin-openapi-codegen", () => {
     }
   });
 
+  it("regenerates generated files through Vite HMR for local inputs", async () => {
+    const tempRoot = mkdtempSync(resolve(tmpdir(), "openapi-codegen-"));
+    const inputPath = resolve(tempRoot, "openapi.yaml");
+    const outputDir = resolve(tempRoot, "generated");
+    writeFileSync(inputPath, createYamlSpec());
+
+    try {
+      const plugin = openapiCodegen({
+        input: "openapi.yaml",
+        output: "generated",
+      });
+
+      if (typeof plugin.configResolved !== "function") {
+        throw new Error("Expected configResolved hook");
+      }
+      if (typeof plugin.buildStart !== "function") {
+        throw new Error("Expected buildStart hook");
+      }
+      if (typeof plugin.handleHotUpdate !== "function") {
+        throw new Error("Expected handleHotUpdate hook");
+      }
+
+      await callConfigResolved(plugin, tempRoot, "serve");
+      await plugin.buildStart.call({} as never, {} as never);
+      await waitForFiles(outputDir, ["api-types.d.ts", "api.ts", "client.ts"]);
+
+      writeFileSync(inputPath, createYamlSpec().replaceAll("status", "health"));
+
+      await expect(
+        plugin.handleHotUpdate.call(
+          {} as never,
+          {
+            file: inputPath,
+            modules: [],
+            read: () => readFileSync(inputPath, "utf-8"),
+            server: {} as never,
+            timestamp: Date.now(),
+          } as never,
+        ),
+      ).resolves.toBeUndefined();
+
+      const generatedApi = readFileSync(resolve(outputDir, "api.ts"), "utf-8");
+      expect(normalizeGeneratedSource(generatedApi)).toContain(
+        "export function getRemoteHealth(): string {",
+      );
+    } finally {
+      rmSync(tempRoot, { force: true, recursive: true });
+    }
+  });
+
   it("skips generation entirely during build mode", async () => {
     const tempRoot = mkdtempSync(resolve(tmpdir(), "openapi-codegen-"));
     const server = createServer((_, response) => {
@@ -330,6 +382,62 @@ describe("vite-plugin-openapi-codegen", () => {
     } finally {
       consoleErrorSpy.mockRestore();
       await closeServer(server);
+      rmSync(tempRoot, { force: true, recursive: true });
+    }
+  });
+
+  it("CLI generates from the openapiCodegen config in vite.config.ts", async () => {
+    const tempRoot = mkdtempSync(resolve(tmpdir(), "openapi-codegen-"));
+    const outputDir = resolve(tempRoot, "generated");
+    writeFileSync(resolve(tempRoot, "openapi.yaml"), createYamlSpec());
+    writeFileSync(
+      resolve(tempRoot, "vite.config.ts"),
+      createViteConfigSource({
+        input: "openapi.yaml",
+        output: "generated",
+      }),
+    );
+
+    try {
+      await linkVitePlusDependency(tempRoot);
+      runCli(["--root", tempRoot]);
+
+      const generatedApi = readFileSync(resolve(outputDir, "api.ts"), "utf-8");
+      expect(normalizeGeneratedSource(generatedApi)).toContain(
+        "export function getRemoteStatus(): string {",
+      );
+    } finally {
+      rmSync(tempRoot, { force: true, recursive: true });
+    }
+  });
+
+  it("CLI explicit options override openapiCodegen config", async () => {
+    const tempRoot = mkdtempSync(resolve(tmpdir(), "openapi-codegen-"));
+    const configuredOutputDir = resolve(tempRoot, "configured-generated");
+    const explicitOutputDir = resolve(tempRoot, "explicit-generated");
+    writeFileSync(resolve(tempRoot, "configured.yaml"), createYamlSpec());
+    writeFileSync(
+      resolve(tempRoot, "explicit.yaml"),
+      createYamlSpec().replaceAll("status", "health"),
+    );
+    writeFileSync(
+      resolve(tempRoot, "vite.config.ts"),
+      createViteConfigSource({
+        input: "configured.yaml",
+        output: "configured-generated",
+      }),
+    );
+
+    try {
+      await linkVitePlusDependency(tempRoot);
+      runCli(["--root", tempRoot, "--input", "explicit.yaml", "--output", "explicit-generated"]);
+
+      expect(existsSync(configuredOutputDir)).toBe(false);
+      const generatedApi = readFileSync(resolve(explicitOutputDir, "api.ts"), "utf-8");
+      expect(normalizeGeneratedSource(generatedApi)).toContain(
+        "export function getRemoteHealth(): string {",
+      );
+    } finally {
       rmSync(tempRoot, { force: true, recursive: true });
     }
   });
@@ -648,6 +756,43 @@ function buildExampleProject(exampleName: "local" | "online") {
       stdio: "pipe",
     },
   );
+}
+
+function runCli(args: string[]) {
+  execFileSync("node", [resolve(import.meta.dirname, "../src/cli.ts"), ...args], {
+    cwd: resolve(import.meta.dirname, ".."),
+    encoding: "utf8",
+    stdio: "pipe",
+  });
+}
+
+async function linkVitePlusDependency(root: string): Promise<void> {
+  const nodeModulesDir = resolve(root, "node_modules");
+  await mkdir(nodeModulesDir, { recursive: true });
+  await symlink(
+    resolve(import.meta.dirname, "../node_modules/vite-plus"),
+    resolve(nodeModulesDir, "vite-plus"),
+    "dir",
+  );
+}
+
+function createViteConfigSource(options: { input: string; output: string }): string {
+  const entryUrl = pathToFileURL(resolve(import.meta.dirname, "../src/index.ts")).href;
+
+  return [
+    'import { defineConfig } from "vite-plus";',
+    `import { openapiCodegen } from ${JSON.stringify(entryUrl)};`,
+    "",
+    "export default defineConfig({",
+    "  plugins: [",
+    "    openapiCodegen({",
+    `      input: ${JSON.stringify(options.input)},`,
+    `      output: ${JSON.stringify(options.output)},`,
+    "    }),",
+    "  ],",
+    "});",
+    "",
+  ].join("\n");
 }
 
 function createYamlSpec(): string {

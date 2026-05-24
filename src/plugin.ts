@@ -262,7 +262,7 @@ function parseOpenAPISpec(sourceText: string, inputLabel: string): OpenAPISpec {
   return parsed as OpenAPISpec;
 }
 
-async function generate(root: string, options: Options): Promise<void> {
+export async function generateOpenAPIArtifacts(root: string, options: Options): Promise<void> {
   const outputDir = resolve(root, options.output);
   mkdirSync(outputDir, { recursive: true });
   const { apiTypesSource, spec } = await loadOpenAPIInput(root, options.input);
@@ -287,6 +287,9 @@ export function openapiCodegen(options: Options): Plugin {
   return {
     name: "openapi-codegen",
     enforce: "pre",
+    api: {
+      options,
+    },
 
     configResolved(config: ResolvedConfig) {
       root = config.root;
@@ -302,23 +305,21 @@ export function openapiCodegen(options: Options): Plugin {
       return;
     },
 
-    configureServer(server) {
+    async handleHotUpdate(ctx) {
       if (isHttpUrl(options.input)) {
         return;
       }
 
       const inputPath = resolve(root, options.input);
+      if (resolve(ctx.file) !== inputPath) {
+        return;
+      }
 
-      server.watcher.add(inputPath);
-      server.watcher.on("change", async (path) => {
-        if (path === inputPath) {
-          console.log("[openapi-codegen] openapi.json changed, regenerating...");
-          void runDevelopmentGeneration(root, options, {
-            onSuccess: () => {
-              console.log("[openapi-codegen] regeneration complete.");
-            },
-          });
-        }
+      console.log("[openapi-codegen] openapi.json changed, regenerating...");
+      await runDevelopmentGeneration(root, options, {
+        onSuccess: () => {
+          console.log("[openapi-codegen] regeneration complete.");
+        },
       });
     },
   };
@@ -330,7 +331,7 @@ async function runDevelopmentGeneration(
   handlers?: { onSuccess?: () => void },
 ): Promise<void> {
   try {
-    await generate(root, options);
+    await generateOpenAPIArtifacts(root, options);
     handlers?.onSuccess?.();
   } catch (error) {
     console.error("[openapi-codegen] generation failed during dev mode.", error);
