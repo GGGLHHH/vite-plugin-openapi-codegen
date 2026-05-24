@@ -70,6 +70,7 @@ export interface NormalizedTypeReference {
 
 export interface NormalizedOperation {
   bodyChannel: NormalizedChannel;
+  bodyContentType: BodyContentType | null;
   builderAlias: string;
   entry: OperationEntry;
   optionTypeName: string;
@@ -102,6 +103,8 @@ interface SuccessResponseInfo {
   hasJsonBody: boolean;
   statusKey: string;
 }
+
+export type BodyContentType = "json" | "binary" | "formData";
 
 export function buildClientRenderModelFromOperations(
   operations: OperationEntry[],
@@ -223,20 +226,6 @@ function getParametersByLocation(
 
 function hasRequiredChannel(parameters: OpenAPIParameter[]): boolean {
   return parameters.some((parameter) => parameter.required);
-}
-
-function getJsonRequestBody(operation: OpenAPIOperation): OpenAPIContent | undefined {
-  const requestBody = operation.requestBody;
-  if (!requestBody) return undefined;
-
-  const jsonBody = requestBody.content?.["application/json"];
-  if (!jsonBody) {
-    throw new Error(
-      `Operation "${operation.operationId ?? "unknown"}" has a requestBody but no application/json content`,
-    );
-  }
-
-  return jsonBody;
 }
 
 function getSuccessResponseInfo(operation: OpenAPIOperation): SuccessResponseInfo {
@@ -404,11 +393,12 @@ function normalizeOperation(
   const builderAlias = getBuilderAlias(entry.funcName);
   const pathChannel = normalizeParameterChannel(entry, context, "path");
   const queryChannel = normalizeParameterChannel(entry, context, "query");
-  const bodyChannel = normalizeBodyChannel(entry, context);
+  const bodyResolution = normalizeBodyChannel(entry, context);
   const responseTypeRef = resolveResponseTypeReference(entry, context, successResponse);
 
   return {
-    bodyChannel,
+    bodyChannel: bodyResolution.channel,
+    bodyContentType: bodyResolution.contentType,
     builderAlias,
     entry,
     optionTypeName: getClientOptionTypeName(entry.funcName),
@@ -445,8 +435,56 @@ function normalizeParameterChannel(
 function normalizeBodyChannel(
   entry: OperationEntry,
   context: NormalizationContext,
+): { channel: NormalizedChannel; contentType: BodyContentType | null } {
+  const requestBody = entry.operation.requestBody;
+  if (!requestBody) {
+    return {
+      channel: {
+        present: false,
+        required: false,
+        typeRef: null,
+      },
+      contentType: null,
+    };
+  }
+
+  const content = requestBody.content ?? {};
+  const jsonBody = content["application/json"];
+  if (jsonBody) {
+    return {
+      channel: createRequestBodyChannel(entry, context, jsonBody, "json"),
+      contentType: "json",
+    };
+  }
+
+  const binaryBody = content["application/octet-stream"];
+  if (binaryBody) {
+    return {
+      channel: createRequestBodyChannel(entry, context, binaryBody, "binary"),
+      contentType: "binary",
+    };
+  }
+
+  const multipartBody = content["multipart/form-data"];
+  if (multipartBody) {
+    return {
+      channel: createRequestBodyChannel(entry, context, multipartBody, "formData"),
+      contentType: "formData",
+    };
+  }
+
+  throw new Error(
+    `Operation "${entry.operationId ?? "unknown"}" has a requestBody but no supported content type`,
+  );
+}
+
+function createRequestBodyChannel(
+  entry: OperationEntry,
+  context: NormalizationContext,
+  body: OpenAPIContent,
+  kind: BodyContentType,
 ): NormalizedChannel {
-  const typeRef = resolveRequestBodyTypeReference(entry, context);
+  const typeRef = resolveRequestBodyTypeReference(entry, context, body, kind);
   if (!typeRef) {
     return {
       present: false,
@@ -465,13 +503,26 @@ function normalizeBodyChannel(
 function resolveRequestBodyTypeReference(
   entry: OperationEntry,
   context: NormalizationContext,
+  body: OpenAPIContent,
+  kind: BodyContentType,
 ): NormalizedTypeReference | null {
-  const jsonBody = getJsonRequestBody(entry.operation);
-  if (!jsonBody) {
-    return null;
+  if (kind === "formData") {
+    return {
+      aliasDefinitionExpr: null,
+      sourceExpr: "FormData",
+      typeName: allocateOperationTypeName(context, entry.funcName, "Request"),
+    };
   }
 
-  const schemaTypeRef = resolveSchemaTypeReference(context, jsonBody.schema);
+  if (kind === "binary") {
+    return {
+      aliasDefinitionExpr: null,
+      sourceExpr: "Blob | File | ArrayBuffer | Uint8Array | string",
+      typeName: allocateOperationTypeName(context, entry.funcName, "Request"),
+    };
+  }
+
+  const schemaTypeRef = resolveSchemaTypeReference(context, body.schema);
   if (schemaTypeRef) {
     return schemaTypeRef;
   }

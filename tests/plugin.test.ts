@@ -233,6 +233,80 @@ describe("vite-plugin-openapi-codegen", () => {
     expectValidTypeScript(files.client, "client.ts");
   });
 
+  it("generates non-JSON request bodies for binary and multipart operations", () => {
+    const files = renderGeneratedArtifacts(
+      {
+        components: {
+          schemas: {
+            MultipartUploadRequest: {
+              properties: {
+                title: {
+                  type: "string",
+                },
+              },
+              type: "object",
+            },
+          },
+        },
+        paths: {
+          "/api/uploads/binary": {
+            put: {
+              operationId: "upload_binary",
+              requestBody: {
+                content: {
+                  "application/octet-stream": {
+                    schema: {
+                      format: "binary",
+                      type: "string",
+                    },
+                  },
+                },
+                required: true,
+              },
+              responses: {
+                200: {
+                  description: "OK",
+                },
+              },
+              tags: ["uploads"],
+            },
+          },
+          "/api/uploads/multipart": {
+            post: {
+              operationId: "upload_multipart",
+              requestBody: {
+                content: {
+                  "multipart/form-data": {
+                    schema: {
+                      $ref: "#/components/schemas/MultipartUploadRequest",
+                    },
+                  },
+                },
+                required: true,
+              },
+              responses: {
+                200: {
+                  description: "OK",
+                },
+              },
+              tags: ["uploads"],
+            },
+          },
+        },
+      },
+      {},
+    );
+
+    const normalizedClient = normalizeGeneratedSource(files.client);
+
+    expect(normalizedClient).toContain("body: Blob | File | ArrayBuffer | Uint8Array | string");
+    expect(normalizedClient).toContain("body: FormData");
+    expect(normalizedClient).toContain("contentType: 'application/octet-stream'");
+    expect(normalizedClient).toContain("body: options.body");
+    expect(normalizedClient).not.toContain("contentType: 'multipart/form-data'");
+    expectValidTypeScript(files.client, "client.ts");
+  });
+
   it("generates artifacts from an online YAML OpenAPI URL at startup", async () => {
     const tempRoot = mkdtempSync(resolve(tmpdir(), "openapi-codegen-"));
     const outputDir = resolve(tempRoot, "generated");

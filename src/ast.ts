@@ -1,6 +1,6 @@
 import * as ts from "typescript";
 
-import type { NormalizedChannel, TypeAliasDefinition } from "./normalization.ts";
+import type { BodyContentType, NormalizedChannel, TypeAliasDefinition } from "./normalization.ts";
 
 const AST_PRINTER = ts.createPrinter({
   newLine: ts.NewLineKind.LineFeed,
@@ -15,6 +15,7 @@ interface AstApiEntry {
 
 interface AstClientOperation {
   bodyChannel: NormalizedChannel;
+  bodyContentType: BodyContentType | null;
   builderAlias: string;
   funcName: string;
   group: string;
@@ -425,12 +426,30 @@ function createClientFunctionDeclaration(operation: AstClientOperation): ts.Func
   }
 
   if (operation.bodyChannel.present) {
-    requestProperties.push(
-      ts.factory.createPropertyAssignment(
-        ts.factory.createIdentifier("json"),
-        ts.factory.createPropertyAccessExpression(ts.factory.createIdentifier("options"), "body"),
-      ),
-    );
+    if (operation.bodyContentType === "json") {
+      requestProperties.push(
+        ts.factory.createPropertyAssignment(
+          ts.factory.createIdentifier("json"),
+          ts.factory.createPropertyAccessExpression(ts.factory.createIdentifier("options"), "body"),
+        ),
+      );
+    } else {
+      requestProperties.push(
+        ts.factory.createPropertyAssignment(
+          ts.factory.createIdentifier("body"),
+          ts.factory.createPropertyAccessExpression(ts.factory.createIdentifier("options"), "body"),
+        ),
+      );
+    }
+
+    if (operation.bodyContentType === "binary") {
+      requestProperties.push(
+        ts.factory.createPropertyAssignment(
+          ts.factory.createIdentifier("contentType"),
+          ts.factory.createStringLiteral("application/octet-stream"),
+        ),
+      );
+    }
   }
 
   requestProperties.push(

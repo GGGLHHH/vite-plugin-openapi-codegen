@@ -100,6 +100,7 @@ async function generateApiTypes(
 
 function createApiEntries(
   normalizedOps: Array<{
+    bodyContentType: "json" | "binary" | "formData" | null;
     entry: { funcName: string; group: string; strippedPath: string };
     pathChannel: NormalizedChannel;
   }>,
@@ -108,6 +109,7 @@ function createApiEntries(
   return normalizedOps.map((op) => ({
     funcName: op.entry.funcName,
     group: op.entry.group,
+    bodyContentType: op.bodyContentType,
     pathTypeExpr:
       op.pathChannel.typeRef == null
         ? null
@@ -123,6 +125,7 @@ function createClientRenderModel(
     needsSearchParamsHelper: boolean;
     operations: Array<{
       bodyChannel: NormalizedChannel;
+      bodyContentType: "json" | "binary" | "formData" | null;
       builderAlias: string;
       entry: { funcName: string; group: string; method: string };
       optionTypeName: string;
@@ -151,6 +154,7 @@ function createClientRenderModel(
     needsSearchParamsHelper: model.needsSearchParamsHelper,
     operations: model.operations.map((operation) => ({
       bodyChannel: resolveChannel(operation.bodyChannel, useTypeAliases),
+      bodyContentType: operation.bodyContentType,
       builderAlias: operation.builderAlias,
       funcName: operation.entry.funcName,
       group: operation.entry.group,

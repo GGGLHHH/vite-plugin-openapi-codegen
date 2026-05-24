@@ -1,5 +1,7 @@
 export interface RequestOptions {
   method: string;
+  body?: BodyInit | null;
+  contentType?: "application/json" | "application/octet-stream" | "multipart/form-data";
   json?: unknown;
   searchParams?: URLSearchParams;
   signal?: AbortSignal;
@@ -18,12 +20,8 @@ export async function fetchJson<T>(path: string, options: RequestOptions): Promi
 
   const response = await fetch(url, {
     method: options.method,
-    headers: {
-      "Content-Type": "application/json",
-      Accept: "application/json",
-      ...options.headers,
-    },
-    body: options.json != null ? JSON.stringify(options.json) : undefined,
+    headers: buildHeaders(options, true),
+    body: buildBody(options),
     signal: options.signal,
   });
 
@@ -43,14 +41,43 @@ export async function fetchVoid(path: string, options: RequestOptions): Promise<
 
   const response = await fetch(url, {
     method: options.method,
-    headers: {
-      ...options.headers,
-    },
-    body: options.json != null ? JSON.stringify(options.json) : undefined,
+    headers: buildHeaders(options, false),
+    body: buildBody(options),
     signal: options.signal,
   });
 
   if (!response.ok) {
     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
   }
+}
+
+function buildHeaders(
+  options: RequestOptions,
+  expectsJsonResponse: boolean,
+): Record<string, string> {
+  const headers = { ...options.headers };
+
+  if (options.json != null) {
+    headers["Content-Type"] = "application/json";
+  } else if (
+    options.body != null &&
+    options.contentType &&
+    options.contentType !== "multipart/form-data"
+  ) {
+    headers["Content-Type"] = options.contentType;
+  }
+
+  if (expectsJsonResponse) {
+    headers.Accept = "application/json";
+  }
+
+  return headers;
+}
+
+function buildBody(options: RequestOptions): BodyInit | null | undefined {
+  if (options.json != null) {
+    return JSON.stringify(options.json);
+  }
+
+  return options.body;
 }

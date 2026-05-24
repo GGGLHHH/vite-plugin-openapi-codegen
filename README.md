@@ -225,6 +225,8 @@ The generated client shape depends on the OpenAPI operation:
 - path parameters become `options.path`
 - query parameters become `options.query`
 - JSON request bodies become `options.body`
+- `application/octet-stream` request bodies become `options.body` with `contentType: "application/octet-stream"`
+- `multipart/form-data` request bodies become `options.body` as `FormData`
 - JSON responses become typed `Promise<T>`
 - empty responses use the configured void request function
 
