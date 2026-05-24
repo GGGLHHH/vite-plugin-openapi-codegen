@@ -508,7 +508,7 @@ function resolveRequestBodyTypeReference(
 ): NormalizedTypeReference | null {
   if (kind === "formData") {
     return {
-      aliasDefinitionExpr: null,
+      aliasDefinitionExpr: "FormData",
       sourceExpr: "FormData",
       typeName: allocateOperationTypeName(context, entry.funcName, "Request"),
     };
@@ -516,8 +516,8 @@ function resolveRequestBodyTypeReference(
 
   if (kind === "binary") {
     return {
-      aliasDefinitionExpr: null,
-      sourceExpr: "Blob | File | ArrayBuffer | Uint8Array | string",
+      aliasDefinitionExpr: "Blob | File | ArrayBuffer | string",
+      sourceExpr: "Blob | File | ArrayBuffer | string",
       typeName: allocateOperationTypeName(context, entry.funcName, "Request"),
     };
   }

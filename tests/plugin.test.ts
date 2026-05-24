@@ -299,11 +299,55 @@ describe("vite-plugin-openapi-codegen", () => {
 
     const normalizedClient = normalizeGeneratedSource(files.client);
 
-    expect(normalizedClient).toContain("body: Blob | File | ArrayBuffer | Uint8Array | string");
+    expect(normalizedClient).toContain("body: Blob | File | ArrayBuffer | string");
     expect(normalizedClient).toContain("body: FormData");
     expect(normalizedClient).toContain("contentType: 'application/octet-stream'");
     expect(normalizedClient).toContain("body: options.body");
     expect(normalizedClient).not.toContain("contentType: 'multipart/form-data'");
+    expectValidTypeScript(files.client, "client.ts");
+  });
+
+  it("keeps binary request bodies valid when type aliases are enabled", () => {
+    const files = renderGeneratedArtifacts(
+      {
+        paths: {
+          "/api/uploads/binary": {
+            put: {
+              operationId: "upload_binary",
+              requestBody: {
+                content: {
+                  "application/octet-stream": {
+                    schema: {
+                      format: "binary",
+                      type: "string",
+                    },
+                  },
+                },
+                required: true,
+              },
+              responses: {
+                200: {
+                  description: "OK",
+                },
+              },
+              tags: ["uploads"],
+            },
+          },
+        },
+      },
+      { typeAliases: true },
+    );
+
+    const normalizedClient = normalizeGeneratedSource(files.client);
+    const normalizedApiTypes = normalizeGeneratedSource(files.apiTypes ?? "");
+
+    expect(normalizedClient).toContain("body: UploadBinaryRequest");
+    expect(normalizedClient).toContain("contentType: 'application/octet-stream'");
+    expect(normalizedClient).toContain("import type { UploadBinaryRequest } from './api-types'");
+    expect(normalizedApiTypes).toContain(
+      "export type UploadBinaryRequest = Blob | File | ArrayBuffer | string",
+    );
+    expectValidTypeScript(files.apiTypes ?? "", "api-types.ts");
     expectValidTypeScript(files.client, "client.ts");
   });
 
