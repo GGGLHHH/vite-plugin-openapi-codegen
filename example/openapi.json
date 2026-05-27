@@ -76,6 +76,15 @@
             "in": "query",
             "required": false,
             "schema": { "type": "string", "enum": ["admin", "user", "guest"] }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": { "type": "string", "enum": ["active", "inactive"] }
+            }
           }
         ],
         "responses": {

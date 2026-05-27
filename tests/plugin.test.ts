@@ -120,6 +120,47 @@ describe("vite-plugin-openapi-codegen", () => {
     expectValidTypeScript(files.api, "api.ts");
   });
 
+  it("generates repeated query keys for array query parameters", () => {
+    const spec = {
+      paths: {
+        "/api/projects": {
+          get: {
+            operationId: "list_projects",
+            parameters: [
+              {
+                in: "query",
+                name: "status",
+                required: false,
+                schema: {
+                  items: { type: "string" },
+                  type: "array",
+                },
+              },
+              {
+                in: "query",
+                name: "limit",
+                required: false,
+                schema: { type: "integer" },
+              },
+            ],
+            responses: { 204: { description: "OK" } },
+            tags: ["projects"],
+          },
+        },
+      },
+    } satisfies Parameters<typeof renderGeneratedArtifacts>[0];
+    const files = renderGeneratedArtifacts(spec, {});
+    const normalizedClient = normalizeGeneratedSource(files.client);
+
+    expect(normalizedClient).toContain(
+      "query?: operations['list_projects']['parameters']['query']",
+    );
+    expect(normalizedClient).toContain("Array.isArray(value)");
+    expect(normalizedClient).toContain("searchParams.append(key, String(item))");
+    expect(normalizedClient).toContain("searchParams.set(key, String(value))");
+    expectValidTypeScript(files.client, "client.ts");
+  });
+
   it("generates top-level type aliases when enabled", () => {
     const files = renderGeneratedArtifacts(createSpec(), { typeAliases: true });
     const normalizedApi = normalizeGeneratedSource(files.api);

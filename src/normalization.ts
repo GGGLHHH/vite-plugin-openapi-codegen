@@ -8,6 +8,9 @@ export interface OpenAPIParameter {
   name: string;
   required?: boolean;
   schema?: {
+    items?: {
+      type?: string | string[];
+    };
     type?: string | string[];
   };
 }
@@ -37,6 +40,7 @@ export interface OpenAPIOperation {
 export type OpenAPIPathItem = Partial<Record<HttpMethod, OpenAPIOperation>>;
 
 export interface OpenAPISchema {
+  items?: unknown;
   properties?: Record<string, unknown>;
   required?: string[];
   type?: string;
@@ -650,6 +654,10 @@ function renderPrimitiveSchemaType(schema: OpenAPIParameter["schema"]): string {
 
   if (Array.isArray(type)) {
     return type.map((memberType) => mapPrimitiveType(memberType)).join(" | ");
+  }
+
+  if (type === "array") {
+    return `${renderPrimitiveSchemaType(schema.items)}[]`;
   }
 
   return mapPrimitiveType(type);

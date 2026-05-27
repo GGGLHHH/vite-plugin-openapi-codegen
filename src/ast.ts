@@ -522,6 +522,33 @@ function createBodyRequestProperty(
 }
 
 function createBuildSearchParamsFunction(): ts.FunctionDeclaration {
+  const queryIdentifier = ts.factory.createIdentifier("query");
+  const searchParamsIdentifier = ts.factory.createIdentifier("searchParams");
+  const hasParamsIdentifier = ts.factory.createIdentifier("hasParams");
+  const keyIdentifier = ts.factory.createIdentifier("key");
+  const valueIdentifier = ts.factory.createIdentifier("value");
+  const itemIdentifier = ts.factory.createIdentifier("item");
+
+  const isNullishOrEmptyString = (identifier: ts.Identifier) =>
+    ts.factory.createBinaryExpression(
+      ts.factory.createBinaryExpression(
+        identifier,
+        ts.factory.createToken(ts.SyntaxKind.EqualsEqualsToken),
+        ts.factory.createNull(),
+      ),
+      ts.factory.createToken(ts.SyntaxKind.BarBarToken),
+      ts.factory.createBinaryExpression(
+        identifier,
+        ts.factory.createToken(ts.SyntaxKind.EqualsEqualsEqualsToken),
+        ts.factory.createStringLiteral(""),
+      ),
+    );
+
+  const assignHasParamsTrue = () =>
+    ts.factory.createExpressionStatement(
+      ts.factory.createAssignment(hasParamsIdentifier, ts.factory.createTrue()),
+    );
+
   return ts.factory.createFunctionDeclaration(
     undefined,
     undefined,
@@ -531,7 +558,7 @@ function createBuildSearchParamsFunction(): ts.FunctionDeclaration {
       ts.factory.createParameterDeclaration(
         undefined,
         undefined,
-        ts.factory.createIdentifier("query"),
+        queryIdentifier,
         undefined,
         createTypeNodeFromText("Record<string, unknown> | undefined"),
       ),
@@ -541,7 +568,7 @@ function createBuildSearchParamsFunction(): ts.FunctionDeclaration {
       [
         ts.factory.createIfStatement(
           ts.factory.createBinaryExpression(
-            ts.factory.createIdentifier("query"),
+            queryIdentifier,
             ts.factory.createToken(ts.SyntaxKind.EqualsEqualsEqualsToken),
             ts.factory.createIdentifier("undefined"),
           ),
@@ -552,32 +579,7 @@ function createBuildSearchParamsFunction(): ts.FunctionDeclaration {
           ts.factory.createVariableDeclarationList(
             [
               ts.factory.createVariableDeclaration(
-                ts.factory.createIdentifier("entries"),
-                undefined,
-                undefined,
-                parseExpression("Object.entries(query).filter(([, value]) => value != null)"),
-              ),
-            ],
-            ts.NodeFlags.Const,
-          ),
-        ),
-        ts.factory.createIfStatement(
-          ts.factory.createBinaryExpression(
-            ts.factory.createPropertyAccessExpression(
-              ts.factory.createIdentifier("entries"),
-              "length",
-            ),
-            ts.factory.createToken(ts.SyntaxKind.EqualsEqualsEqualsToken),
-            ts.factory.createNumericLiteral("0"),
-          ),
-          ts.factory.createReturnStatement(ts.factory.createIdentifier("undefined")),
-        ),
-        ts.factory.createVariableStatement(
-          undefined,
-          ts.factory.createVariableDeclarationList(
-            [
-              ts.factory.createVariableDeclaration(
-                ts.factory.createIdentifier("searchParams"),
+                searchParamsIdentifier,
                 undefined,
                 undefined,
                 ts.factory.createNewExpression(
@@ -590,44 +592,119 @@ function createBuildSearchParamsFunction(): ts.FunctionDeclaration {
             ts.NodeFlags.Const,
           ),
         ),
+        ts.factory.createVariableStatement(
+          undefined,
+          ts.factory.createVariableDeclarationList(
+            [
+              ts.factory.createVariableDeclaration(
+                hasParamsIdentifier,
+                undefined,
+                undefined,
+                ts.factory.createFalse(),
+              ),
+            ],
+            ts.NodeFlags.Let,
+          ),
+        ),
         ts.factory.createForOfStatement(
           undefined,
           ts.factory.createVariableDeclarationList(
             [
               ts.factory.createVariableDeclaration(
                 ts.factory.createArrayBindingPattern([
-                  ts.factory.createBindingElement(undefined, undefined, "key"),
-                  ts.factory.createBindingElement(undefined, undefined, "value"),
+                  ts.factory.createBindingElement(undefined, undefined, keyIdentifier),
+                  ts.factory.createBindingElement(undefined, undefined, valueIdentifier),
                 ]),
               ),
             ],
             ts.NodeFlags.Const,
           ),
-          ts.factory.createIdentifier("entries"),
+          parseExpression("Object.entries(query)"),
           ts.factory.createBlock(
             [
-              ts.factory.createExpressionStatement(
+              ts.factory.createIfStatement(
+                isNullishOrEmptyString(valueIdentifier),
+                ts.factory.createContinueStatement(),
+              ),
+              ts.factory.createIfStatement(
                 ts.factory.createCallExpression(
                   ts.factory.createPropertyAccessExpression(
-                    ts.factory.createIdentifier("searchParams"),
-                    "set",
+                    ts.factory.createIdentifier("Array"),
+                    "isArray",
                   ),
                   undefined,
+                  [valueIdentifier],
+                ),
+                ts.factory.createBlock(
                   [
-                    ts.factory.createIdentifier("key"),
+                    ts.factory.createForOfStatement(
+                      undefined,
+                      ts.factory.createVariableDeclarationList(
+                        [ts.factory.createVariableDeclaration(itemIdentifier)],
+                        ts.NodeFlags.Const,
+                      ),
+                      valueIdentifier,
+                      ts.factory.createBlock(
+                        [
+                          ts.factory.createIfStatement(
+                            isNullishOrEmptyString(itemIdentifier),
+                            ts.factory.createContinueStatement(),
+                          ),
+                          ts.factory.createExpressionStatement(
+                            ts.factory.createCallExpression(
+                              ts.factory.createPropertyAccessExpression(
+                                searchParamsIdentifier,
+                                "append",
+                              ),
+                              undefined,
+                              [
+                                keyIdentifier,
+                                ts.factory.createCallExpression(
+                                  ts.factory.createIdentifier("String"),
+                                  undefined,
+                                  [itemIdentifier],
+                                ),
+                              ],
+                            ),
+                          ),
+                          assignHasParamsTrue(),
+                        ],
+                        true,
+                      ),
+                    ),
+                    ts.factory.createContinueStatement(),
+                  ],
+                  true,
+                ),
+              ),
+              ts.factory.createExpressionStatement(
+                ts.factory.createCallExpression(
+                  ts.factory.createPropertyAccessExpression(searchParamsIdentifier, "set"),
+                  undefined,
+                  [
+                    keyIdentifier,
                     ts.factory.createCallExpression(
                       ts.factory.createIdentifier("String"),
                       undefined,
-                      [ts.factory.createIdentifier("value")],
+                      [valueIdentifier],
                     ),
                   ],
                 ),
               ),
+              assignHasParamsTrue(),
             ],
             true,
           ),
         ),
-        ts.factory.createReturnStatement(ts.factory.createIdentifier("searchParams")),
+        ts.factory.createReturnStatement(
+          ts.factory.createConditionalExpression(
+            hasParamsIdentifier,
+            ts.factory.createToken(ts.SyntaxKind.QuestionToken),
+            searchParamsIdentifier,
+            ts.factory.createToken(ts.SyntaxKind.ColonToken),
+            ts.factory.createIdentifier("undefined"),
+          ),
+        ),
       ],
       true,
     ),
