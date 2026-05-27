@@ -488,6 +488,34 @@ describe("vite-plugin-openapi-codegen", () => {
     }
   });
 
+  it("skips dev startup generation when disabled", async () => {
+    const tempRoot = mkdtempSync(resolve(tmpdir(), "openapi-codegen-"));
+    const outputDir = resolve(tempRoot, "generated");
+    writeFileSync(resolve(tempRoot, "openapi.yaml"), createYamlSpec());
+
+    try {
+      const plugin = openapiCodegen({
+        generateOnDev: false,
+        input: "openapi.yaml",
+        output: "generated",
+      });
+
+      if (typeof plugin.configResolved !== "function") {
+        throw new Error("Expected configResolved hook");
+      }
+      if (typeof plugin.buildStart !== "function") {
+        throw new Error("Expected buildStart hook");
+      }
+
+      await callConfigResolved(plugin, tempRoot, "serve");
+      await plugin.buildStart.call({} as never, {} as never);
+
+      expect(existsSync(outputDir)).toBe(false);
+    } finally {
+      rmSync(tempRoot, { force: true, recursive: true });
+    }
+  });
+
   it("regenerates generated files through Vite HMR for local inputs", async () => {
     const tempRoot = mkdtempSync(resolve(tmpdir(), "openapi-codegen-"));
     const inputPath = resolve(tempRoot, "openapi.yaml");
@@ -531,6 +559,60 @@ describe("vite-plugin-openapi-codegen", () => {
 
       const generatedApi = readFileSync(resolve(outputDir, "api.ts"), "utf-8");
       expect(normalizeGeneratedSource(generatedApi)).toContain(
+        "export function getRemoteHealth(): string {",
+      );
+    } finally {
+      rmSync(tempRoot, { force: true, recursive: true });
+    }
+  });
+
+  it("skips HMR regeneration when disabled", async () => {
+    const tempRoot = mkdtempSync(resolve(tmpdir(), "openapi-codegen-"));
+    const inputPath = resolve(tempRoot, "openapi.yaml");
+    const outputDir = resolve(tempRoot, "generated");
+    writeFileSync(inputPath, createYamlSpec());
+
+    try {
+      const plugin = openapiCodegen({
+        generateOnHmr: false,
+        input: "openapi.yaml",
+        output: "generated",
+      });
+
+      if (typeof plugin.configResolved !== "function") {
+        throw new Error("Expected configResolved hook");
+      }
+      if (typeof plugin.buildStart !== "function") {
+        throw new Error("Expected buildStart hook");
+      }
+      if (typeof plugin.handleHotUpdate !== "function") {
+        throw new Error("Expected handleHotUpdate hook");
+      }
+
+      await callConfigResolved(plugin, tempRoot, "serve");
+      await plugin.buildStart.call({} as never, {} as never);
+      await waitForFiles(outputDir, ["api-types.d.ts", "api.ts", "client.ts"]);
+
+      writeFileSync(inputPath, createYamlSpec().replaceAll("status", "health"));
+
+      await expect(
+        plugin.handleHotUpdate.call(
+          {} as never,
+          {
+            file: inputPath,
+            modules: [],
+            read: () => readFileSync(inputPath, "utf-8"),
+            server: {} as never,
+            timestamp: Date.now(),
+          } as never,
+        ),
+      ).resolves.toBeUndefined();
+
+      const generatedApi = readFileSync(resolve(outputDir, "api.ts"), "utf-8");
+      expect(normalizeGeneratedSource(generatedApi)).toContain(
+        "export function getRemoteStatus(): string {",
+      );
+      expect(normalizeGeneratedSource(generatedApi)).not.toContain(
         "export function getRemoteHealth(): string {",
       );
     } finally {

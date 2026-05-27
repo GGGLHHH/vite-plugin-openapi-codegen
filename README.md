@@ -239,6 +239,8 @@ interface Options {
   pathPrefix?: string;
   stripPrefix?: boolean;
   typeAliases?: boolean;
+  generateOnDev?: boolean;
+  generateOnHmr?: boolean;
   httpClient?: {
     module?: string;
     jsonFunction?: string;
@@ -254,6 +256,14 @@ interface Options {
 Path or URL to the OpenAPI JSON/YAML document. Local paths are resolved relative to the Vite project root and watched in dev mode. Online `http://` and `https://` URLs are fetched once at startup and are not watched. The `vg` CLI reads this value from `vite.config.*` when present, unless you override it with `--input`.
 
 In dev mode, generation errors are logged and do not stop Vite from starting. In build mode, the plugin is skipped entirely.
+
+### `generateOnDev`
+
+Controls whether the plugin generates artifacts automatically when the Vite dev server starts. The default is `true`. Set it to `false` when you want dev startup to avoid touching generated files and rely on `vg` or another explicit generation step instead. This option only affects the Vite dev lifecycle; the `vg` CLI still generates when invoked.
+
+### `generateOnHmr`
+
+Controls whether the plugin regenerates artifacts through Vite HMR when a local OpenAPI input file changes. The default is `true`. Set it to `false` when local spec edits should not automatically rewrite generated files during an active dev session. Online `http://` and `https://` inputs are still not watched.
 
 ### `output`
 

@@ -57,6 +57,10 @@ export interface Options {
   httpClient?: HttpClientConfig;
   /** Generate and consume top-level type aliases. Default: false */
   typeAliases?: boolean;
+  /** Whether to generate during Vite dev server startup. Default: true */
+  generateOnDev?: boolean;
+  /** Whether to regenerate through Vite HMR for local inputs. Default: true */
+  generateOnHmr?: boolean;
 }
 
 const GENERATED_HEADER = [
@@ -301,7 +305,7 @@ export function openapiCodegen(options: Options): Plugin {
     },
 
     async buildStart() {
-      if (command === "serve") {
+      if (command === "serve" && options.generateOnDev !== false) {
         void runDevelopmentGeneration(root, options);
         return;
       }
@@ -310,6 +314,10 @@ export function openapiCodegen(options: Options): Plugin {
     },
 
     async handleHotUpdate(ctx) {
+      if (options.generateOnHmr === false) {
+        return;
+      }
+
       if (isHttpUrl(options.input)) {
         return;
       }
