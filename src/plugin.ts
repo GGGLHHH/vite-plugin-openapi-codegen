@@ -5,10 +5,17 @@ import { pathToFileURL } from "node:url";
 import type { Plugin, ResolvedConfig } from "vite-plus";
 import { parse as parseYaml } from "yaml";
 
-import { renderApiSource, renderClientSource, renderOperationTypeAliases } from "./ast.ts";
+import {
+  renderAccessPoliciesSource,
+  renderApiSource,
+  renderClientSource,
+  renderOperationTypeAliases,
+} from "./ast.ts";
 import type {
   NormalizedChannel,
   NormalizedTypeReference,
+  OpenAPIAccessExtension,
+  OpenAPIAccessKind,
   OpenAPISpec,
   OperationEntry,
   TypeAliasDefinition,
@@ -71,6 +78,7 @@ const GENERATED_HEADER = [
 interface GeneratedArtifacts {
   api: string;
   apiTypes?: string;
+  accessPolicies?: string;
   client: string;
 }
 
@@ -174,6 +182,68 @@ function createClientRenderModel(
   };
 }
 
+const ACCESS_POLICY_KINDS = new Set<OpenAPIAccessKind>([
+  "authenticated",
+  "internal",
+  "public",
+  "role",
+]);
+
+function createAccessPolicyEntries(operations: OperationEntry[]) {
+  return operations.flatMap((entry) => {
+    const accessPolicy = readAccessPolicyExtension(entry);
+    if (!accessPolicy) {
+      return [];
+    }
+
+    return [
+      {
+        apiPath: entry.apiPath,
+        funcName: entry.funcName,
+        kind: accessPolicy.kind,
+        methodUpper: entry.method.toUpperCase(),
+        operationId: entry.operationId,
+        roles: accessPolicy.roles ?? [],
+        strippedPath: entry.strippedPath,
+      },
+    ];
+  });
+}
+
+function readAccessPolicyExtension(entry: OperationEntry): OpenAPIAccessExtension | null {
+  const accessPolicy = entry.operation["x-access"];
+  if (accessPolicy == null) {
+    return null;
+  }
+  if (!isRecord(accessPolicy)) {
+    throw new Error(`Operation "${entry.operationId}" has invalid x-access extension`);
+  }
+  const kind = accessPolicy.kind;
+  if (typeof kind !== "string" || !ACCESS_POLICY_KINDS.has(kind as OpenAPIAccessKind)) {
+    throw new Error(`Operation "${entry.operationId}" has invalid x-access kind`);
+  }
+
+  const rolesValue = accessPolicy.roles;
+  if (rolesValue == null) {
+    if (kind === "role") {
+      throw new Error(`Operation "${entry.operationId}" role access requires x-access.roles`);
+    }
+    return { kind: kind as OpenAPIAccessKind };
+  }
+  if (!Array.isArray(rolesValue) || rolesValue.some((role) => typeof role !== "string")) {
+    throw new Error(`Operation "${entry.operationId}" has invalid x-access.roles`);
+  }
+  if (kind !== "role") {
+    throw new Error(`Operation "${entry.operationId}" non-role access must not include roles`);
+  }
+
+  return { kind: kind as OpenAPIAccessKind, roles: rolesValue };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 function resolveChannel(channel: NormalizedChannel, useTypeAliases: boolean): NormalizedChannel {
   if (!channel.typeRef) {
     return channel;
@@ -205,6 +275,10 @@ export function renderGeneratedArtifacts(
   if (clientModel.operations.length === 0) {
     throw new Error(`No paths matching prefix "${pathPrefix}" found in openapi.json`);
   }
+  const accessPolicies = renderAccessPoliciesSource(
+    createAccessPolicyEntries(operations),
+    GENERATED_HEADER,
+  );
 
   return {
     api: renderApiSource(
@@ -216,6 +290,7 @@ export function renderGeneratedArtifacts(
       GENERATED_HEADER,
       httpClient,
     ),
+    ...(accessPolicies ? { accessPolicies } : {}),
     ...(useTypeAliases && clientModel.typeAliases.length > 0
       ? { apiTypes: renderOperationTypeAliases(clientModel.typeAliases) }
       : {}),
@@ -283,6 +358,9 @@ export async function generateOpenAPIArtifacts(root: string, options: Options): 
   await generateApiTypes(apiTypesSource, outputDir, options.typeAliases ?? false);
   if (artifacts.apiTypes) {
     writeFileSync(resolve(outputDir, "api-types.d.ts"), artifacts.apiTypes, { flag: "a" });
+  }
+  if (artifacts.accessPolicies) {
+    writeFileSync(resolve(outputDir, "access-policies.ts"), artifacts.accessPolicies);
   }
   writeFileSync(resolve(outputDir, "api.ts"), artifacts.api);
   writeFileSync(resolve(outputDir, "client.ts"), artifacts.client);

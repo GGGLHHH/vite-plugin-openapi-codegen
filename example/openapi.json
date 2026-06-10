@@ -9,6 +9,9 @@
       "get": {
         "operationId": "health_check",
         "tags": ["system"],
+        "x-access": {
+          "kind": "public"
+        },
         "responses": {
           "200": {
             "description": "OK",
@@ -25,6 +28,9 @@
       "post": {
         "operationId": "login",
         "tags": ["auth"],
+        "x-access": {
+          "kind": "public"
+        },
         "requestBody": {
           "required": true,
           "content": {
@@ -49,6 +55,9 @@
       "post": {
         "operationId": "logout",
         "tags": ["auth"],
+        "x-access": {
+          "kind": "authenticated"
+        },
         "responses": {
           "204": { "description": "Logged out" }
         }
@@ -58,6 +67,10 @@
       "get": {
         "operationId": "list_users",
         "tags": ["users"],
+        "x-access": {
+          "kind": "role",
+          "roles": ["admin", "manager"]
+        },
         "parameters": [
           {
             "name": "page",
@@ -101,6 +114,10 @@
       "post": {
         "operationId": "create_user",
         "tags": ["users"],
+        "x-access": {
+          "kind": "role",
+          "roles": ["admin"]
+        },
         "requestBody": {
           "required": true,
           "content": {
@@ -125,6 +142,10 @@
       "get": {
         "operationId": "get_user",
         "tags": ["users"],
+        "x-access": {
+          "kind": "role",
+          "roles": ["admin", "manager"]
+        },
         "parameters": [
           {
             "name": "user_id",
@@ -147,6 +168,10 @@
       "put": {
         "operationId": "update_user",
         "tags": ["users"],
+        "x-access": {
+          "kind": "role",
+          "roles": ["admin"]
+        },
         "parameters": [
           {
             "name": "user_id",
@@ -177,6 +202,10 @@
       "patch": {
         "operationId": "patch_user",
         "tags": ["users"],
+        "x-access": {
+          "kind": "role",
+          "roles": ["admin", "manager"]
+        },
         "parameters": [
           {
             "name": "user_id",
@@ -207,6 +236,10 @@
       "delete": {
         "operationId": "delete_user",
         "tags": ["users"],
+        "x-access": {
+          "kind": "role",
+          "roles": ["admin"]
+        },
         "parameters": [
           {
             "name": "user_id",
@@ -224,6 +257,9 @@
       "get": {
         "operationId": "list_user_posts",
         "tags": ["posts"],
+        "x-access": {
+          "kind": "authenticated"
+        },
         "parameters": [
           {
             "name": "user_id",
@@ -252,6 +288,9 @@
       "post": {
         "operationId": "create_post",
         "tags": ["posts"],
+        "x-access": {
+          "kind": "authenticated"
+        },
         "parameters": [
           {
             "name": "user_id",
@@ -284,6 +323,9 @@
       "get": {
         "operationId": "get_post",
         "tags": ["posts"],
+        "x-access": {
+          "kind": "public"
+        },
         "parameters": [
           {
             "name": "user_id",
@@ -312,6 +354,10 @@
       "delete": {
         "operationId": "delete_post",
         "tags": ["posts"],
+        "x-access": {
+          "kind": "role",
+          "roles": ["admin", "moderator"]
+        },
         "parameters": [
           {
             "name": "user_id",
@@ -335,6 +381,9 @@
       "get": {
         "operationId": "search",
         "tags": ["search"],
+        "x-access": {
+          "kind": "public"
+        },
         "parameters": [
           {
             "name": "q",
@@ -371,6 +420,9 @@
       "post": {
         "operationId": "create_upload",
         "tags": ["uploads"],
+        "x-access": {
+          "kind": "authenticated"
+        },
         "parameters": [
           {
             "name": "notify",
@@ -403,6 +455,9 @@
       "post": {
         "operationId": "create_item_review",
         "tags": ["orders"],
+        "x-access": {
+          "kind": "authenticated"
+        },
         "parameters": [
           {
             "name": "order_id",
@@ -440,6 +495,18 @@
               }
             }
           }
+        }
+      }
+    },
+    "/api/internal/jobs": {
+      "get": {
+        "operationId": "list_internal_jobs",
+        "tags": ["internal"],
+        "x-access": {
+          "kind": "internal"
+        },
+        "responses": {
+          "204": { "description": "No Content" }
         }
       }
     }

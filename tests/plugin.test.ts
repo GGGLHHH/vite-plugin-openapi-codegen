@@ -86,6 +86,65 @@ describe("vite-plugin-openapi-codegen", () => {
     expectValidTypeScript(files.client, "client.ts");
   });
 
+  it("generates access policy artifacts from x-access extensions", () => {
+    const files = renderGeneratedArtifacts(
+      {
+        paths: {
+          "/api/admin/projects": {
+            get: {
+              operationId: "list-projects",
+              responses: { 200: { description: "OK" } },
+              tags: ["projects"],
+              "x-access": {
+                kind: "role",
+                roles: ["admin", "creator"],
+              },
+            },
+          },
+          "/api/auth/me": {
+            get: {
+              operationId: "get-me",
+              responses: { 200: { description: "OK" } },
+              tags: ["auth"],
+              "x-access": {
+                kind: "authenticated",
+              },
+            },
+          },
+          "/api/public/projects": {
+            get: {
+              operationId: "list-public-projects",
+              responses: { 200: { description: "OK" } },
+              tags: ["projects"],
+              "x-access": {
+                kind: "public",
+              },
+            },
+          },
+        },
+      },
+      {},
+    );
+    const normalizedAccessPolicies = normalizeGeneratedSource(files.accessPolicies ?? "");
+
+    expect(Object.keys(files).sort()).toEqual(["accessPolicies", "api", "client"]);
+    expect(normalizedAccessPolicies).toContain("export type AccessPolicyKind =");
+    expect(normalizedAccessPolicies).toContain("export interface OperationAccessPolicy");
+    expect(normalizedAccessPolicies).toContain("export const accessPolicies = {");
+    expect(normalizedAccessPolicies).toContain("listProjects: {");
+    expect(normalizedAccessPolicies).toContain("kind: 'role'");
+    expect(normalizedAccessPolicies).toContain("roles: ['admin', 'creator']");
+    expect(normalizedAccessPolicies).toContain("operationId: 'list-projects'");
+    expect(normalizedAccessPolicies).toContain("method: 'GET'");
+    expect(normalizedAccessPolicies).toContain("apiPath: '/api/admin/projects'");
+    expect(normalizedAccessPolicies).toContain("path: 'admin/projects'");
+    expect(normalizedAccessPolicies).toContain("getMe: {");
+    expect(normalizedAccessPolicies).toContain("kind: 'authenticated'");
+    expect(normalizedAccessPolicies).toContain("listPublicProjects: {");
+    expect(normalizedAccessPolicies).toContain("kind: 'public'");
+    expectValidTypeScript(files.accessPolicies ?? "", "access-policies.ts");
+  });
+
   it("supports custom pathPrefix for filtering and stripping", () => {
     const spec = {
       components: {
@@ -493,6 +552,48 @@ describe("vite-plugin-openapi-codegen", () => {
       );
     } finally {
       await closeServer(server);
+      rmSync(tempRoot, { force: true, recursive: true });
+    }
+  });
+
+  it("writes access policy artifacts during generation", async () => {
+    const tempRoot = mkdtempSync(resolve(tmpdir(), "openapi-codegen-"));
+    const outputDir = resolve(tempRoot, "generated");
+    writeFileSync(resolve(tempRoot, "openapi.yaml"), createYamlSpecWithAccessPolicy());
+
+    try {
+      const plugin = openapiCodegen({
+        input: "openapi.yaml",
+        output: "generated",
+      });
+
+      if (typeof plugin.configResolved !== "function") {
+        throw new Error("Expected configResolved hook");
+      }
+      if (typeof plugin.buildStart !== "function") {
+        throw new Error("Expected buildStart hook");
+      }
+
+      await callConfigResolved(plugin, tempRoot, "serve");
+      await plugin.buildStart.call({} as never, {} as never);
+
+      await waitForFiles(outputDir, [
+        "access-policies.ts",
+        "api-types.d.ts",
+        "api.ts",
+        "client.ts",
+      ]);
+
+      const generatedAccessPolicies = readFileSync(
+        resolve(outputDir, "access-policies.ts"),
+        "utf-8",
+      );
+      expect(normalizeGeneratedSource(generatedAccessPolicies)).toContain("getRemoteStatus: {");
+      expect(normalizeGeneratedSource(generatedAccessPolicies)).toContain("kind: 'role'");
+      expect(normalizeGeneratedSource(generatedAccessPolicies)).toContain(
+        "roles: ['admin', 'creator']",
+      );
+    } finally {
       rmSync(tempRoot, { force: true, recursive: true });
     }
   });
@@ -1132,6 +1233,20 @@ function createYamlSpec(): string {
     "          type: boolean",
     "",
   ].join("\n");
+}
+
+function createYamlSpecWithAccessPolicy(): string {
+  return createYamlSpec().replace(
+    "      responses:",
+    [
+      "      x-access:",
+      "        kind: role",
+      "        roles:",
+      "          - admin",
+      "          - creator",
+      "      responses:",
+    ].join("\n"),
+  );
 }
 
 function createSpec(): Parameters<typeof renderGeneratedArtifacts>[0] {

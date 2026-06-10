@@ -29,12 +29,20 @@ export interface OpenAPIResponse {
   description?: string;
 }
 
+export type OpenAPIAccessKind = "authenticated" | "internal" | "public" | "role";
+
+export interface OpenAPIAccessExtension {
+  kind: OpenAPIAccessKind;
+  roles?: string[];
+}
+
 export interface OpenAPIOperation {
   operationId?: string;
   parameters?: OpenAPIParameter[];
   requestBody?: OpenAPIRequestBody;
   responses?: Record<string, OpenAPIResponse>;
   tags?: string[];
+  "x-access"?: OpenAPIAccessExtension;
 }
 
 export type OpenAPIPathItem = Partial<Record<HttpMethod, OpenAPIOperation>>;

@@ -42,6 +42,16 @@ interface AstHttpClientConfig {
   voidFunction: string;
 }
 
+interface AstAccessPolicyEntry {
+  apiPath: string;
+  funcName: string;
+  kind: string;
+  methodUpper: string;
+  operationId: string;
+  roles: string[];
+  strippedPath: string;
+}
+
 export function renderApiSource(
   entries: AstApiEntry[],
   generatedHeader: readonly string[],
@@ -177,6 +187,57 @@ export function renderOperationTypeAliases(typeAliases: TypeAliasDefinition[]): 
   return `${typeAliases
     .map((alias) => `export type ${alias.typeName} = ${alias.definitionExpr};`)
     .join("\n")}\n`;
+}
+
+export function renderAccessPoliciesSource(
+  entries: AstAccessPolicyEntry[],
+  generatedHeader: readonly string[],
+): string {
+  if (entries.length === 0) {
+    return "";
+  }
+
+  const lines = [
+    ...generatedHeader,
+    "",
+    'export type AccessPolicyKind = "authenticated" | "internal" | "public" | "role";',
+    "",
+    "export interface AccessPolicy {",
+    "  kind: AccessPolicyKind;",
+    "  roles?: readonly string[];",
+    "}",
+    "",
+    "export interface OperationAccessPolicy extends AccessPolicy {",
+    "  apiPath: string;",
+    "  method: string;",
+    "  operationId: string;",
+    "  path: string;",
+    "}",
+    "",
+    "export const accessPolicies = {",
+  ];
+
+  for (const entry of entries) {
+    lines.push(`  ${entry.funcName}: {`);
+    lines.push(`    apiPath: ${JSON.stringify(entry.apiPath)},`);
+    lines.push(`    kind: ${JSON.stringify(entry.kind)},`);
+    lines.push(`    method: ${JSON.stringify(entry.methodUpper)},`);
+    lines.push(`    operationId: ${JSON.stringify(entry.operationId)},`);
+    lines.push(`    path: ${JSON.stringify(entry.strippedPath)},`);
+    if (entry.roles.length > 0) {
+      lines.push(`    roles: [${entry.roles.map((role) => JSON.stringify(role)).join(", ")}],`);
+    }
+    lines.push("  },");
+  }
+
+  lines.push(
+    "} as const satisfies Record<string, OperationAccessPolicy>;",
+    "",
+    "export type AccessPolicyKey = keyof typeof accessPolicies;",
+    "",
+  );
+
+  return `${lines.join("\n")}`;
 }
 
 function printGeneratedFile(
