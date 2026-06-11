@@ -76,6 +76,7 @@ These commands map to their corresponding tools. For example, `vp dev --port 300
 <!--VITE PLUS END-->
 
 <!-- gitnexus:start -->
+
 # GitNexus — Code Intelligence
 
 This project is indexed by GitNexus as **vite-plugin-openapi-codegen** (287 symbols, 632 relationships, 24 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
@@ -99,22 +100,22 @@ This project is indexed by GitNexus as **vite-plugin-openapi-codegen** (287 symb
 
 ## Resources
 
-| Resource | Use for |
-|----------|---------|
-| `gitnexus://repo/vite-plugin-openapi-codegen/context` | Codebase overview, check index freshness |
-| `gitnexus://repo/vite-plugin-openapi-codegen/clusters` | All functional areas |
-| `gitnexus://repo/vite-plugin-openapi-codegen/processes` | All execution flows |
-| `gitnexus://repo/vite-plugin-openapi-codegen/process/{name}` | Step-by-step execution trace |
+| Resource                                                     | Use for                                  |
+| ------------------------------------------------------------ | ---------------------------------------- |
+| `gitnexus://repo/vite-plugin-openapi-codegen/context`        | Codebase overview, check index freshness |
+| `gitnexus://repo/vite-plugin-openapi-codegen/clusters`       | All functional areas                     |
+| `gitnexus://repo/vite-plugin-openapi-codegen/processes`      | All execution flows                      |
+| `gitnexus://repo/vite-plugin-openapi-codegen/process/{name}` | Step-by-step execution trace             |
 
 ## CLI
 
-| Task | Read this skill file |
-|------|---------------------|
-| Understand architecture / "How does X work?" | `.claude/skills/gitnexus/gitnexus-exploring/SKILL.md` |
-| Blast radius / "What breaks if I change X?" | `.claude/skills/gitnexus/gitnexus-impact-analysis/SKILL.md` |
-| Trace bugs / "Why is X failing?" | `.claude/skills/gitnexus/gitnexus-debugging/SKILL.md` |
-| Rename / extract / split / refactor | `.claude/skills/gitnexus/gitnexus-refactoring/SKILL.md` |
-| Tools, resources, schema reference | `.claude/skills/gitnexus/gitnexus-guide/SKILL.md` |
-| Index, status, clean, wiki CLI commands | `.claude/skills/gitnexus/gitnexus-cli/SKILL.md` |
+| Task                                         | Read this skill file                                        |
+| -------------------------------------------- | ----------------------------------------------------------- |
+| Understand architecture / "How does X work?" | `.claude/skills/gitnexus/gitnexus-exploring/SKILL.md`       |
+| Blast radius / "What breaks if I change X?"  | `.claude/skills/gitnexus/gitnexus-impact-analysis/SKILL.md` |
+| Trace bugs / "Why is X failing?"             | `.claude/skills/gitnexus/gitnexus-debugging/SKILL.md`       |
+| Rename / extract / split / refactor          | `.claude/skills/gitnexus/gitnexus-refactoring/SKILL.md`     |
+| Tools, resources, schema reference           | `.claude/skills/gitnexus/gitnexus-guide/SKILL.md`           |
+| Index, status, clean, wiki CLI commands      | `.claude/skills/gitnexus/gitnexus-cli/SKILL.md`             |
 
 <!-- gitnexus:end -->
