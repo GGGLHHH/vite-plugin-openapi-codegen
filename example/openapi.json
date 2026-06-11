@@ -9,33 +9,32 @@
       "get": {
         "operationId": "health_check",
         "tags": ["system"],
-        "x-access": {
-          "kind": "public"
-        },
         "responses": {
           "200": {
             "description": "OK",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/HealthResponse" }
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
               }
             }
           }
-        }
+        },
+        "security": []
       }
     },
     "/api/auth/login": {
       "post": {
         "operationId": "login",
         "tags": ["auth"],
-        "x-access": {
-          "kind": "public"
-        },
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/LoginRequest" }
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
             }
           }
         },
@@ -44,22 +43,24 @@
             "description": "Authenticated",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/AuthResponse" }
+                "schema": {
+                  "$ref": "#/components/schemas/AuthResponse"
+                }
               }
             }
           }
-        }
+        },
+        "security": []
       }
     },
     "/api/auth/logout": {
       "post": {
         "operationId": "logout",
         "tags": ["auth"],
-        "x-access": {
-          "kind": "authenticated"
-        },
         "responses": {
-          "204": { "description": "Logged out" }
+          "204": {
+            "description": "Logged out"
+          }
         }
       }
     },
@@ -67,28 +68,31 @@
       "get": {
         "operationId": "list_users",
         "tags": ["users"],
-        "x-access": {
-          "kind": "role",
-          "roles": ["admin", "manager"]
-        },
         "parameters": [
           {
             "name": "page",
             "in": "query",
             "required": true,
-            "schema": { "type": "integer" }
+            "schema": {
+              "type": "integer"
+            }
           },
           {
             "name": "per_page",
             "in": "query",
             "required": false,
-            "schema": { "type": "integer" }
+            "schema": {
+              "type": "integer"
+            }
           },
           {
             "name": "role",
             "in": "query",
             "required": false,
-            "schema": { "type": "string", "enum": ["admin", "user", "guest"] }
+            "schema": {
+              "type": "string",
+              "enum": ["admin", "user", "guest"]
+            }
           },
           {
             "name": "status",
@@ -96,7 +100,10 @@
             "required": false,
             "schema": {
               "type": "array",
-              "items": { "type": "string", "enum": ["active", "inactive"] }
+              "items": {
+                "type": "string",
+                "enum": ["active", "inactive"]
+              }
             }
           }
         ],
@@ -105,24 +112,29 @@
             "description": "OK",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/UserListResponse" }
+                "schema": {
+                  "$ref": "#/components/schemas/UserListResponse"
+                }
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": ["admin", "manager"]
+          }
+        ]
       },
       "post": {
         "operationId": "create_user",
         "tags": ["users"],
-        "x-access": {
-          "kind": "role",
-          "roles": ["admin"]
-        },
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/CreateUserRequest" }
+              "schema": {
+                "$ref": "#/components/schemas/CreateUserRequest"
+              }
             }
           }
         },
@@ -131,27 +143,33 @@
             "description": "Created",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/UserResponse" }
+                "schema": {
+                  "$ref": "#/components/schemas/UserResponse"
+                }
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": ["admin"]
+          }
+        ]
       }
     },
     "/api/users/{user_id}": {
       "get": {
         "operationId": "get_user",
         "tags": ["users"],
-        "x-access": {
-          "kind": "role",
-          "roles": ["admin", "manager"]
-        },
         "parameters": [
           {
             "name": "user_id",
             "in": "path",
             "required": true,
-            "schema": { "type": "string", "format": "uuid" }
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
           }
         ],
         "responses": {
@@ -159,32 +177,40 @@
             "description": "OK",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/UserResponse" }
+                "schema": {
+                  "$ref": "#/components/schemas/UserResponse"
+                }
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": ["admin", "manager"]
+          }
+        ]
       },
       "put": {
         "operationId": "update_user",
         "tags": ["users"],
-        "x-access": {
-          "kind": "role",
-          "roles": ["admin"]
-        },
         "parameters": [
           {
             "name": "user_id",
             "in": "path",
             "required": true,
-            "schema": { "type": "string", "format": "uuid" }
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
           }
         ],
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/UpdateUserRequest" }
+              "schema": {
+                "$ref": "#/components/schemas/UpdateUserRequest"
+              }
             }
           }
         },
@@ -193,32 +219,40 @@
             "description": "Updated",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/UserResponse" }
+                "schema": {
+                  "$ref": "#/components/schemas/UserResponse"
+                }
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": ["admin"]
+          }
+        ]
       },
       "patch": {
         "operationId": "patch_user",
         "tags": ["users"],
-        "x-access": {
-          "kind": "role",
-          "roles": ["admin", "manager"]
-        },
         "parameters": [
           {
             "name": "user_id",
             "in": "path",
             "required": true,
-            "schema": { "type": "string", "format": "uuid" }
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
           }
         ],
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/PatchUserRequest" }
+              "schema": {
+                "$ref": "#/components/schemas/PatchUserRequest"
+              }
             }
           }
         },
@@ -227,51 +261,67 @@
             "description": "Patched",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/UserResponse" }
+                "schema": {
+                  "$ref": "#/components/schemas/UserResponse"
+                }
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": ["admin", "manager"]
+          }
+        ]
       },
       "delete": {
         "operationId": "delete_user",
         "tags": ["users"],
-        "x-access": {
-          "kind": "role",
-          "roles": ["admin"]
-        },
         "parameters": [
           {
             "name": "user_id",
             "in": "path",
             "required": true,
-            "schema": { "type": "string", "format": "uuid" }
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
           }
         ],
         "responses": {
-          "204": { "description": "Deleted" }
-        }
+          "204": {
+            "description": "Deleted"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": ["admin"]
+          }
+        ]
       }
     },
     "/api/users/{user_id}/posts": {
       "get": {
         "operationId": "list_user_posts",
         "tags": ["posts"],
-        "x-access": {
-          "kind": "authenticated"
-        },
         "parameters": [
           {
             "name": "user_id",
             "in": "path",
             "required": true,
-            "schema": { "type": "string", "format": "uuid" }
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
           },
           {
             "name": "status",
             "in": "query",
             "required": false,
-            "schema": { "type": "string", "enum": ["draft", "published", "archived"] }
+            "schema": {
+              "type": "string",
+              "enum": ["draft", "published", "archived"]
+            }
           }
         ],
         "responses": {
@@ -279,7 +329,9 @@
             "description": "OK",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/PostListResponse" }
+                "schema": {
+                  "$ref": "#/components/schemas/PostListResponse"
+                }
               }
             }
           }
@@ -288,22 +340,24 @@
       "post": {
         "operationId": "create_post",
         "tags": ["posts"],
-        "x-access": {
-          "kind": "authenticated"
-        },
         "parameters": [
           {
             "name": "user_id",
             "in": "path",
             "required": true,
-            "schema": { "type": "string", "format": "uuid" }
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
           }
         ],
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/CreatePostRequest" }
+              "schema": {
+                "$ref": "#/components/schemas/CreatePostRequest"
+              }
             }
           }
         },
@@ -312,7 +366,9 @@
             "description": "Created",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/PostResponse" }
+                "schema": {
+                  "$ref": "#/components/schemas/PostResponse"
+                }
               }
             }
           }
@@ -323,21 +379,24 @@
       "get": {
         "operationId": "get_post",
         "tags": ["posts"],
-        "x-access": {
-          "kind": "public"
-        },
         "parameters": [
           {
             "name": "user_id",
             "in": "path",
             "required": true,
-            "schema": { "type": "string", "format": "uuid" }
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
           },
           {
             "name": "post_id",
             "in": "path",
             "required": true,
-            "schema": { "type": "string", "format": "uuid" }
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
           }
         ],
         "responses": {
@@ -345,63 +404,80 @@
             "description": "OK",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/PostResponse" }
+                "schema": {
+                  "$ref": "#/components/schemas/PostResponse"
+                }
               }
             }
           }
-        }
+        },
+        "security": []
       },
       "delete": {
         "operationId": "delete_post",
         "tags": ["posts"],
-        "x-access": {
-          "kind": "role",
-          "roles": ["admin", "moderator"]
-        },
         "parameters": [
           {
             "name": "user_id",
             "in": "path",
             "required": true,
-            "schema": { "type": "string", "format": "uuid" }
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
           },
           {
             "name": "post_id",
             "in": "path",
             "required": true,
-            "schema": { "type": "string", "format": "uuid" }
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
           }
         ],
         "responses": {
-          "204": { "description": "Deleted" }
-        }
+          "204": {
+            "description": "Deleted"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": ["admin", "moderator"]
+          }
+        ]
       }
     },
     "/api/search": {
       "get": {
         "operationId": "search",
         "tags": ["search"],
-        "x-access": {
-          "kind": "public"
-        },
         "parameters": [
           {
             "name": "q",
             "in": "query",
             "required": true,
-            "schema": { "type": "string" }
+            "schema": {
+              "type": "string"
+            }
           },
           {
             "name": "type",
             "in": "query",
             "required": false,
-            "schema": { "type": "string", "enum": ["user", "post", "all"] }
+            "schema": {
+              "type": "string",
+              "enum": ["user", "post", "all"]
+            }
           },
           {
             "name": "limit",
             "in": "query",
             "required": false,
-            "schema": { "type": "integer", "default": 20 }
+            "schema": {
+              "type": "integer",
+              "default": 20
+            }
           }
         ],
         "responses": {
@@ -409,33 +485,37 @@
             "description": "OK",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/SearchResponse" }
+                "schema": {
+                  "$ref": "#/components/schemas/SearchResponse"
+                }
               }
             }
           }
-        }
+        },
+        "security": []
       }
     },
     "/api/uploads": {
       "post": {
         "operationId": "create_upload",
         "tags": ["uploads"],
-        "x-access": {
-          "kind": "authenticated"
-        },
         "parameters": [
           {
             "name": "notify",
             "in": "query",
             "required": false,
-            "schema": { "type": "boolean" }
+            "schema": {
+              "type": "boolean"
+            }
           }
         ],
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/CreateUploadRequest" }
+              "schema": {
+                "$ref": "#/components/schemas/CreateUploadRequest"
+              }
             }
           }
         },
@@ -444,7 +524,9 @@
             "description": "Created",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/UploadResponse" }
+                "schema": {
+                  "$ref": "#/components/schemas/UploadResponse"
+                }
               }
             }
           }
@@ -455,34 +537,39 @@
       "post": {
         "operationId": "create_item_review",
         "tags": ["orders"],
-        "x-access": {
-          "kind": "authenticated"
-        },
         "parameters": [
           {
             "name": "order_id",
             "in": "path",
             "required": true,
-            "schema": { "type": "string" }
+            "schema": {
+              "type": "string"
+            }
           },
           {
             "name": "item_id",
             "in": "path",
             "required": true,
-            "schema": { "type": "string" }
+            "schema": {
+              "type": "string"
+            }
           },
           {
             "name": "draft",
             "in": "query",
             "required": false,
-            "schema": { "type": "boolean" }
+            "schema": {
+              "type": "boolean"
+            }
           }
         ],
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/ReviewRequest" }
+              "schema": {
+                "$ref": "#/components/schemas/ReviewRequest"
+              }
             }
           }
         },
@@ -491,7 +578,9 @@
             "description": "Created",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/ReviewResponse" }
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewResponse"
+                }
               }
             }
           }
@@ -502,12 +591,16 @@
       "get": {
         "operationId": "list_internal_jobs",
         "tags": ["internal"],
-        "x-access": {
-          "kind": "internal"
-        },
         "responses": {
-          "204": { "description": "No Content" }
-        }
+          "204": {
+            "description": "No Content"
+          }
+        },
+        "security": [
+          {
+            "internalToken": []
+          }
+        ]
       }
     }
   },
@@ -517,19 +610,31 @@
         "type": "object",
         "required": ["token", "expires_at"],
         "properties": {
-          "token": { "type": "string" },
-          "expires_at": { "type": "string", "format": "date-time" }
+          "token": {
+            "type": "string"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          }
         }
       },
       "CreatePostRequest": {
         "type": "object",
         "required": ["title", "body"],
         "properties": {
-          "title": { "type": "string", "maxLength": 200 },
-          "body": { "type": "string" },
+          "title": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "body": {
+            "type": "string"
+          },
           "tags": {
             "type": "array",
-            "items": { "type": "string" }
+            "items": {
+              "type": "string"
+            }
           }
         }
       },
@@ -537,58 +642,99 @@
         "type": "object",
         "required": ["filename", "content_type", "size"],
         "properties": {
-          "filename": { "type": "string" },
-          "content_type": { "type": "string" },
-          "size": { "type": "integer" }
+          "filename": {
+            "type": "string"
+          },
+          "content_type": {
+            "type": "string"
+          },
+          "size": {
+            "type": "integer"
+          }
         }
       },
       "CreateUserRequest": {
         "type": "object",
         "required": ["email", "name"],
         "properties": {
-          "email": { "type": "string", "format": "email" },
-          "name": { "type": "string" },
-          "role": { "type": "string", "enum": ["admin", "user", "guest"], "default": "user" }
+          "email": {
+            "type": "string",
+            "format": "email"
+          },
+          "name": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string",
+            "enum": ["admin", "user", "guest"],
+            "default": "user"
+          }
         }
       },
       "HealthResponse": {
         "type": "object",
         "required": ["status", "version"],
         "properties": {
-          "status": { "type": "string", "enum": ["ok", "degraded"] },
-          "version": { "type": "string" }
+          "status": {
+            "type": "string",
+            "enum": ["ok", "degraded"]
+          },
+          "version": {
+            "type": "string"
+          }
         }
       },
       "LoginRequest": {
         "type": "object",
         "required": ["email", "password"],
         "properties": {
-          "email": { "type": "string", "format": "email" },
-          "password": { "type": "string", "minLength": 8 }
+          "email": {
+            "type": "string",
+            "format": "email"
+          },
+          "password": {
+            "type": "string",
+            "minLength": 8
+          }
         }
       },
       "OrderItemReviewPath": {
         "type": "object",
         "required": ["order_id", "item_id"],
         "properties": {
-          "order_id": { "type": "string" },
-          "item_id": { "type": "string" }
+          "order_id": {
+            "type": "string"
+          },
+          "item_id": {
+            "type": "string"
+          }
         }
       },
       "PaginationMeta": {
         "type": "object",
         "required": ["page", "per_page", "total"],
         "properties": {
-          "page": { "type": "integer" },
-          "per_page": { "type": "integer" },
-          "total": { "type": "integer" }
+          "page": {
+            "type": "integer"
+          },
+          "per_page": {
+            "type": "integer"
+          },
+          "total": {
+            "type": "integer"
+          }
         }
       },
       "PatchUserRequest": {
         "type": "object",
         "properties": {
-          "name": { "type": "string" },
-          "role": { "type": "string", "enum": ["admin", "user", "guest"] }
+          "name": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string",
+            "enum": ["admin", "user", "guest"]
+          }
         }
       },
       "PostListResponse": {
@@ -597,42 +743,77 @@
         "properties": {
           "items": {
             "type": "array",
-            "items": { "$ref": "#/components/schemas/PostResponse" }
+            "items": {
+              "$ref": "#/components/schemas/PostResponse"
+            }
           },
-          "pagination": { "$ref": "#/components/schemas/PaginationMeta" }
+          "pagination": {
+            "$ref": "#/components/schemas/PaginationMeta"
+          }
         }
       },
       "PostResponse": {
         "type": "object",
         "required": ["id", "title", "body", "status", "created_at"],
         "properties": {
-          "id": { "type": "string", "format": "uuid" },
-          "title": { "type": "string" },
-          "body": { "type": "string" },
-          "status": { "type": "string", "enum": ["draft", "published", "archived"] },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "title": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["draft", "published", "archived"]
+          },
           "tags": {
             "type": "array",
-            "items": { "type": "string" }
+            "items": {
+              "type": "string"
+            }
           },
-          "created_at": { "type": "string", "format": "date-time" }
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          }
         }
       },
       "ReviewRequest": {
         "type": "object",
         "required": ["rating"],
         "properties": {
-          "rating": { "type": "integer", "minimum": 1, "maximum": 5 },
-          "comment": { "type": "string" }
+          "rating": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 5
+          },
+          "comment": {
+            "type": "string"
+          }
         }
       },
       "ReviewResponse": {
         "type": "object",
         "required": ["id", "rating", "created_at"],
         "properties": {
-          "id": { "type": "string", "format": "uuid" },
-          "rating": { "type": "integer" },
-          "comment": { "type": "string" },
-          "created_at": { "type": "string", "format": "date-time" }
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "rating": {
+            "type": "integer"
+          },
+          "comment": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          }
         }
       },
       "SearchResponse": {
@@ -645,31 +826,56 @@
               "type": "object",
               "required": ["type", "id", "title"],
               "properties": {
-                "type": { "type": "string" },
-                "id": { "type": "string" },
-                "title": { "type": "string" }
+                "type": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                }
               }
             }
           },
-          "total": { "type": "integer" }
+          "total": {
+            "type": "integer"
+          }
         }
       },
       "UpdateUserRequest": {
         "type": "object",
         "required": ["email", "name"],
         "properties": {
-          "email": { "type": "string", "format": "email" },
-          "name": { "type": "string" },
-          "role": { "type": "string", "enum": ["admin", "user", "guest"] }
+          "email": {
+            "type": "string",
+            "format": "email"
+          },
+          "name": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string",
+            "enum": ["admin", "user", "guest"]
+          }
         }
       },
       "UploadResponse": {
         "type": "object",
         "required": ["id", "url", "expires_at"],
         "properties": {
-          "id": { "type": "string", "format": "uuid" },
-          "url": { "type": "string", "format": "uri" },
-          "expires_at": { "type": "string", "format": "date-time" }
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          }
         }
       },
       "UserListResponse": {
@@ -678,37 +884,81 @@
         "properties": {
           "items": {
             "type": "array",
-            "items": { "$ref": "#/components/schemas/UserResponse" }
+            "items": {
+              "$ref": "#/components/schemas/UserResponse"
+            }
           },
-          "pagination": { "$ref": "#/components/schemas/PaginationMeta" }
+          "pagination": {
+            "$ref": "#/components/schemas/PaginationMeta"
+          }
         }
       },
       "UserPath": {
         "type": "object",
         "required": ["user_id"],
         "properties": {
-          "user_id": { "type": "string", "format": "uuid" }
+          "user_id": {
+            "type": "string",
+            "format": "uuid"
+          }
         }
       },
       "UserPostPath": {
         "type": "object",
         "required": ["user_id", "post_id"],
         "properties": {
-          "user_id": { "type": "string", "format": "uuid" },
-          "post_id": { "type": "string", "format": "uuid" }
+          "user_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "post_id": {
+            "type": "string",
+            "format": "uuid"
+          }
         }
       },
       "UserResponse": {
         "type": "object",
         "required": ["id", "email", "name", "role", "created_at"],
         "properties": {
-          "id": { "type": "string", "format": "uuid" },
-          "email": { "type": "string", "format": "email" },
-          "name": { "type": "string" },
-          "role": { "type": "string", "enum": ["admin", "user", "guest"] },
-          "created_at": { "type": "string", "format": "date-time" }
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "email": {
+            "type": "string",
+            "format": "email"
+          },
+          "name": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string",
+            "enum": ["admin", "user", "guest"]
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          }
         }
       }
+    },
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      },
+      "internalToken": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "Authorization"
+      }
     }
-  }
+  },
+  "security": [
+    {
+      "bearerAuth": []
+    }
+  ]
 }

@@ -36,13 +36,20 @@ export interface OpenAPIAccessExtension {
   roles?: string[];
 }
 
+export type OpenAPISecurityRequirement = Record<string, string[]>;
+
+export interface OpenAPISecurityScheme {
+  type?: string;
+  scheme?: string;
+}
+
 export interface OpenAPIOperation {
   operationId?: string;
   parameters?: OpenAPIParameter[];
   requestBody?: OpenAPIRequestBody;
   responses?: Record<string, OpenAPIResponse>;
   tags?: string[];
-  "x-access"?: OpenAPIAccessExtension;
+  security?: OpenAPISecurityRequirement[];
 }
 
 export type OpenAPIPathItem = Partial<Record<HttpMethod, OpenAPIOperation>>;
@@ -56,7 +63,11 @@ export interface OpenAPISchema {
 
 export interface OpenAPISpec {
   paths?: Record<string, OpenAPIPathItem>;
-  components?: { schemas?: Record<string, OpenAPISchema> };
+  security?: OpenAPISecurityRequirement[];
+  components?: {
+    schemas?: Record<string, OpenAPISchema>;
+    securitySchemes?: Record<string, OpenAPISecurityScheme>;
+  };
 }
 
 export interface OperationEntry {

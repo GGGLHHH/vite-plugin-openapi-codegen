@@ -86,19 +86,23 @@ describe("vite-plugin-openapi-codegen", () => {
     expectValidTypeScript(files.client, "client.ts");
   });
 
-  it("generates access policy artifacts from x-access extensions", () => {
+  it("generates access policy artifacts from security requirements", () => {
     const files = renderGeneratedArtifacts(
       {
+        components: {
+          securitySchemes: {
+            bearerAuth: { scheme: "bearer", type: "http" },
+            internalToken: { type: "apiKey" },
+          },
+        },
+        security: [{ bearerAuth: [] }],
         paths: {
           "/api/admin/projects": {
             get: {
               operationId: "list-projects",
               responses: { 200: { description: "OK" } },
+              security: [{ bearerAuth: ["admin", "creator"] }],
               tags: ["projects"],
-              "x-access": {
-                kind: "role",
-                roles: ["admin", "creator"],
-              },
             },
           },
           "/api/auth/me": {
@@ -106,19 +110,14 @@ describe("vite-plugin-openapi-codegen", () => {
               operationId: "get-me",
               responses: { 200: { description: "OK" } },
               tags: ["auth"],
-              "x-access": {
-                kind: "authenticated",
-              },
             },
           },
           "/api/public/projects": {
             get: {
               operationId: "list-public-projects",
               responses: { 200: { description: "OK" } },
+              security: [],
               tags: ["projects"],
-              "x-access": {
-                kind: "public",
-              },
             },
           },
         },
@@ -1236,17 +1235,27 @@ function createYamlSpec(): string {
 }
 
 function createYamlSpecWithAccessPolicy(): string {
-  return createYamlSpec().replace(
-    "      responses:",
-    [
-      "      x-access:",
-      "        kind: role",
-      "        roles:",
-      "          - admin",
-      "          - creator",
+  return createYamlSpec()
+    .replace(
       "      responses:",
-    ].join("\n"),
-  );
+      [
+        "      security:",
+        "        - bearerAuth:",
+        "            - admin",
+        "            - creator",
+        "      responses:",
+      ].join("\n"),
+    )
+    .replace(
+      "components:",
+      [
+        "components:",
+        "  securitySchemes:",
+        "    bearerAuth:",
+        "      type: http",
+        "      scheme: bearer",
+      ].join("\n"),
+    );
 }
 
 function createSpec(): Parameters<typeof renderGeneratedArtifacts>[0] {

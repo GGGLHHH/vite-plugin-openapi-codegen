@@ -15,7 +15,8 @@ import type {
   NormalizedChannel,
   NormalizedTypeReference,
   OpenAPIAccessExtension,
-  OpenAPIAccessKind,
+  OpenAPISecurityRequirement,
+  OpenAPISecurityScheme,
   OpenAPISpec,
   OperationEntry,
   TypeAliasDefinition,
@@ -182,20 +183,16 @@ function createClientRenderModel(
   };
 }
 
-const ACCESS_POLICY_KINDS = new Set<OpenAPIAccessKind>([
-  "authenticated",
-  "internal",
-  "public",
-  "role",
-]);
-
-function createAccessPolicyEntries(operations: OperationEntry[]) {
+function createAccessPolicyEntries(
+  operations: OperationEntry[],
+  securitySchemes: Record<string, OpenAPISecurityScheme> | undefined,
+  topLevelSecurity: OpenAPISecurityRequirement[] | undefined,
+) {
   return operations.flatMap((entry) => {
-    const accessPolicy = readAccessPolicyExtension(entry);
+    const accessPolicy = readSecurityRequirement(entry, securitySchemes, topLevelSecurity);
     if (!accessPolicy) {
       return [];
     }
-
     return [
       {
         apiPath: entry.apiPath,
@@ -210,34 +207,44 @@ function createAccessPolicyEntries(operations: OperationEntry[]) {
   });
 }
 
-function readAccessPolicyExtension(entry: OperationEntry): OpenAPIAccessExtension | null {
-  const accessPolicy = entry.operation["x-access"];
-  if (accessPolicy == null) {
+// Reverses the backend's policy-to-security mapping. An operation with no
+// security inherits the top-level default; if there is no security anywhere the
+// operation is not access-controlled and produces no policy entry. An explicit
+// empty requirement list is public, an apiKey scheme is the internal callback
+// token, and an http bearer scheme carries roles as scopes (empty = just
+// authenticated).
+function readSecurityRequirement(
+  entry: OperationEntry,
+  securitySchemes: Record<string, OpenAPISecurityScheme> | undefined,
+  topLevelSecurity: OpenAPISecurityRequirement[] | undefined,
+): OpenAPIAccessExtension | null {
+  const security = entry.operation.security ?? topLevelSecurity;
+  if (security === undefined) {
     return null;
   }
-  if (!isRecord(accessPolicy)) {
-    throw new Error(`Operation "${entry.operationId}" has invalid x-access extension`);
+  if (!Array.isArray(security)) {
+    throw new Error(`Operation "${entry.operationId}" has invalid security`);
   }
-  const kind = accessPolicy.kind;
-  if (typeof kind !== "string" || !ACCESS_POLICY_KINDS.has(kind as OpenAPIAccessKind)) {
-    throw new Error(`Operation "${entry.operationId}" has invalid x-access kind`);
+  if (security.length === 0) {
+    return { kind: "public" };
   }
-
-  const rolesValue = accessPolicy.roles;
-  if (rolesValue == null) {
-    if (kind === "role") {
-      throw new Error(`Operation "${entry.operationId}" role access requires x-access.roles`);
+  const requirement = security[0];
+  if (!isRecord(requirement)) {
+    throw new Error(`Operation "${entry.operationId}" has an invalid security requirement`);
+  }
+  for (const [schemeName, scopes] of Object.entries(requirement)) {
+    const type = securitySchemes?.[schemeName]?.type;
+    if (type === "apiKey") {
+      return { kind: "internal" };
     }
-    return { kind: kind as OpenAPIAccessKind };
+    if (type === "http") {
+      const roles = Array.isArray(scopes)
+        ? scopes.filter((scope): scope is string => typeof scope === "string")
+        : [];
+      return roles.length === 0 ? { kind: "authenticated" } : { kind: "role", roles };
+    }
   }
-  if (!Array.isArray(rolesValue) || rolesValue.some((role) => typeof role !== "string")) {
-    throw new Error(`Operation "${entry.operationId}" has invalid x-access.roles`);
-  }
-  if (kind !== "role") {
-    throw new Error(`Operation "${entry.operationId}" non-role access must not include roles`);
-  }
-
-  return { kind: kind as OpenAPIAccessKind, roles: rolesValue };
+  throw new Error(`Operation "${entry.operationId}" has an unrecognized security scheme`);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -276,7 +283,7 @@ export function renderGeneratedArtifacts(
     throw new Error(`No paths matching prefix "${pathPrefix}" found in openapi.json`);
   }
   const accessPolicies = renderAccessPoliciesSource(
-    createAccessPolicyEntries(operations),
+    createAccessPolicyEntries(operations, spec.components?.securitySchemes, spec.security),
     GENERATED_HEADER,
   );
 
