@@ -23,6 +23,7 @@ import type {
 import {
   buildClientRenderModelFromOperations,
   collectOperations,
+  excludeInternalOperationsFromSpec,
   readSecurityRequirement,
   warnOnParameterLocationMismatch,
 } from "./normalization.ts";
@@ -89,11 +90,20 @@ interface LoadedOpenAPIInput {
 }
 
 async function generateApiTypes(
-  source: string | URL,
+  input: LoadedOpenAPIInput,
   outputDir: string,
   useTypeAliases: boolean,
 ): Promise<void> {
   const { default: openapiTS, astToString } = await import("openapi-typescript");
+  // openapi-typescript reads the raw document, so internal operations must be
+  // stripped here too or they would resurface in the generated paths and
+  // operations interfaces. Both input modes already carry a parsed document
+  // (loadOpenAPIInput parses remote text and local files alike), so the
+  // filtered clone is handed over as an object. When nothing was excluded the
+  // original source (inline text or file URL) is passed through untouched.
+  const { excludedCount, spec } = excludeInternalOperationsFromSpec(input.spec);
+  const source =
+    excludedCount > 0 ? (spec as Parameters<typeof openapiTS>[0]) : input.apiTypesSource;
   const ast = await openapiTS(
     source,
     useTypeAliases
@@ -311,14 +321,14 @@ function parseOpenAPISpec(sourceText: string, inputLabel: string): OpenAPISpec {
 export async function generateOpenAPIArtifacts(root: string, options: Options): Promise<void> {
   const outputDir = resolve(root, options.output);
   mkdirSync(outputDir, { recursive: true });
-  const { apiTypesSource, spec } = await loadOpenAPIInput(root, options.input);
+  const input = await loadOpenAPIInput(root, options.input);
   const pathPrefix = options.pathPrefix ?? "/api/";
   const stripPrefix = options.stripPrefix ?? true;
-  const operations = collectOperations(spec, pathPrefix, stripPrefix);
-  const artifacts = renderGeneratedArtifacts(spec, options, operations);
+  const operations = collectOperations(input.spec, pathPrefix, stripPrefix);
+  const artifacts = renderGeneratedArtifacts(input.spec, options, operations);
 
   warnOnParameterLocationMismatch(operations);
-  await generateApiTypes(apiTypesSource, outputDir, options.typeAliases ?? false);
+  await generateApiTypes(input, outputDir, options.typeAliases ?? false);
   if (artifacts.apiTypes) {
     writeFileSync(resolve(outputDir, "api-types.d.ts"), artifacts.apiTypes, { flag: "a" });
   }
@@ -347,9 +357,14 @@ export function openapiCodegen(options: Options): Plugin {
 
     async buildStart() {
       if (command === "serve" && options.generateOnDev !== false) {
-        void runDevelopmentGeneration(root, options, {
+        // Deliberately fire-and-forget so dev startup is never blocked. When
+        // onError re-raises through this.error the promise rejects; by then
+        // the failure was already surfaced via this.error/console.error, so
+        // the rejection is swallowed here instead of becoming an
+        // unhandledRejection that could kill the dev process.
+        runDevelopmentGeneration(root, options, {
           onError: resolvePluginErrorRaiser(this),
-        });
+        }).catch(() => {});
         return;
       }
 

@@ -188,7 +188,24 @@ export function collectOperations(
     }
   }
 
-  return excludeInternalOperations(entries, spec);
+  const publicEntries = excludeInternalOperations(entries, spec);
+  // Without this check the consumer would later fail with the misleading
+  // "No paths matching prefix" error even though paths did match; they were
+  // just all internal-only.
+  if (entries.length > 0 && publicEntries.length === 0) {
+    throw new Error(
+      `All ${entries.length} operation(s) matching prefix "${pathPrefix}" are internal-only and were excluded`,
+    );
+  }
+
+  const excludedCount = entries.length - publicEntries.length;
+  if (excludedCount > 0) {
+    console.info(
+      `[openapi-codegen] excluded ${excludedCount} internal-only operation(s) from generated artifacts.`,
+    );
+  }
+
+  return publicEntries;
 }
 
 // Internal operations carry the backend's header apiKey callback token. A
@@ -209,6 +226,52 @@ function excludeInternalOperations(entries: OperationEntry[], spec: OpenAPISpec)
   );
 }
 
+// Spec-level counterpart of excludeInternalOperations for the raw document
+// handed to openapi-typescript: api-types.d.ts must not leak the internal
+// paths/operations that every other artifact already excludes. Operations are
+// classified with the same readSecurityRequirement rules; a deep clone is
+// filtered so the caller's parsed document stays intact, and path items left
+// without any operation are dropped entirely. Specs without securitySchemes
+// are returned untouched because nothing in them can be internal.
+export function excludeInternalOperationsFromSpec(spec: OpenAPISpec): {
+  excludedCount: number;
+  spec: OpenAPISpec;
+} {
+  const securitySchemes = spec.components?.securitySchemes;
+  if (!securitySchemes || !spec.paths) {
+    return { excludedCount: 0, spec };
+  }
+
+  const clone = structuredClone(spec);
+  let excludedCount = 0;
+
+  for (const [path, pathItem] of Object.entries(clone.paths ?? {})) {
+    let removedFromPath = 0;
+
+    for (const method of HTTP_METHODS) {
+      const operation = pathItem[method];
+      if (!operation) continue;
+
+      const accessPolicy = readSecurityRequirement(
+        { operation, operationId: operation.operationId ?? `${method.toUpperCase()} ${path}` },
+        securitySchemes,
+        clone.security,
+      );
+      if (accessPolicy?.kind !== "internal") continue;
+
+      delete pathItem[method];
+      removedFromPath += 1;
+    }
+
+    excludedCount += removedFromPath;
+    if (removedFromPath > 0 && !HTTP_METHODS.some((method) => pathItem[method])) {
+      delete clone.paths?.[path];
+    }
+  }
+
+  return { excludedCount, spec: clone };
+}
+
 // Reverses the backend's policy-to-security mapping. An operation with no
 // security inherits the top-level default; if there is no security anywhere the
 // operation is not access-controlled and produces no policy entry. An explicit
@@ -219,7 +282,7 @@ function excludeInternalOperations(entries: OperationEntry[], spec: OpenAPISpec)
 // string scopes, so anything else fails loudly instead of being silently
 // misread as a weaker policy.
 export function readSecurityRequirement(
-  entry: OperationEntry,
+  entry: Pick<OperationEntry, "operation" | "operationId">,
   securitySchemes: Record<string, OpenAPISecurityScheme> | undefined,
   topLevelSecurity: OpenAPISecurityRequirement[] | undefined,
 ): OpenAPIAccessExtension | null {
@@ -263,7 +326,11 @@ export function readSecurityRequirement(
   throw new Error(`Operation "${entry.operationId}" has an unrecognized security scheme`);
 }
 
-function readSecurityScopes(entry: OperationEntry, schemeName: string, scopes: unknown): string[] {
+function readSecurityScopes(
+  entry: Pick<OperationEntry, "operation" | "operationId">,
+  schemeName: string,
+  scopes: unknown,
+): string[] {
   if (!Array.isArray(scopes)) {
     throw new Error(
       `Operation "${entry.operationId}" has non-array scopes for security scheme "${schemeName}"`,

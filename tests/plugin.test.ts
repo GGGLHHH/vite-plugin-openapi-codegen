@@ -305,6 +305,31 @@ describe("vite-plugin-openapi-codegen", () => {
     expectValidTypeScript(files.client, "client.ts");
   });
 
+  it("throws when every operation matching the prefix is internal-only", () => {
+    expect(() =>
+      renderGeneratedArtifacts(
+        {
+          components: {
+            securitySchemes: {
+              internalToken: { in: "header", name: "X-Internal-Token", type: "apiKey" },
+            },
+          },
+          paths: {
+            "/api/internal/roles": {
+              post: {
+                operationId: "sync-roles",
+                responses: { 200: { description: "OK" } },
+                security: [{ internalToken: [] }],
+                tags: ["internal"],
+              },
+            },
+          },
+        },
+        {},
+      ),
+    ).toThrow('All 1 operation(s) matching prefix "/api/" are internal-only and were excluded');
+  });
+
   it("supports custom pathPrefix for filtering and stripping", () => {
     const spec = {
       components: {
@@ -758,6 +783,44 @@ describe("vite-plugin-openapi-codegen", () => {
     }
   });
 
+  it("omits internal operations from generated api-types while keeping siblings", async () => {
+    const tempRoot = mkdtempSync(resolve(tmpdir(), "openapi-codegen-"));
+    const outputDir = resolve(tempRoot, "generated");
+    writeFileSync(resolve(tempRoot, "openapi.yaml"), createYamlSpecWithInternalOperation());
+
+    try {
+      const plugin = openapiCodegen({
+        input: "openapi.yaml",
+        output: "generated",
+      });
+
+      if (typeof plugin.configResolved !== "function") {
+        throw new Error("Expected configResolved hook");
+      }
+      if (typeof plugin.buildStart !== "function") {
+        throw new Error("Expected buildStart hook");
+      }
+
+      await callConfigResolved(plugin, tempRoot, "serve");
+      await plugin.buildStart.call({} as never, {} as never);
+
+      await waitForFiles(outputDir, [
+        "access-policies.ts",
+        "api-types.d.ts",
+        "api.ts",
+        "client.ts",
+      ]);
+
+      const generatedApiTypes = readFileSync(resolve(outputDir, "api-types.d.ts"), "utf-8");
+      expect(generatedApiTypes).toContain("/api/remote/status");
+      expect(generatedApiTypes).toContain("get_remote_status");
+      expect(generatedApiTypes).not.toContain("/api/internal/roles");
+      expect(generatedApiTypes).not.toContain("sync_roles");
+    } finally {
+      rmSync(tempRoot, { force: true, recursive: true });
+    }
+  });
+
   it("does not block dev startup when online generation fails", async () => {
     const tempRoot = mkdtempSync(resolve(tmpdir(), "openapi-codegen-"));
     const server = createServer((_, response) => {
@@ -815,6 +878,48 @@ describe("vite-plugin-openapi-codegen", () => {
 
       await callConfigResolved(plugin, tempRoot, "serve");
       await plugin.buildStart.call({ error: contextError } as never, {} as never);
+      await waitForCall(contextError);
+
+      expect(contextError.mock.calls[0]?.[0]).toBeInstanceOf(Error);
+    } finally {
+      consoleErrorSpy.mockRestore();
+      await closeServer(server);
+      rmSync(tempRoot, { force: true, recursive: true });
+    }
+  });
+
+  it("does not leave an unhandled rejection when the context error hook throws", async () => {
+    const tempRoot = mkdtempSync(resolve(tmpdir(), "openapi-codegen-"));
+    const server = createServer((_, response) => {
+      response.writeHead(503, { "content-type": "text/plain" });
+      response.end("not ready");
+    });
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    // Mimics the real plugin context: this.error reports the error and throws.
+    const contextError = vi.fn((error: Error) => {
+      throw error;
+    });
+
+    try {
+      const input = await listen(server);
+      const plugin = openapiCodegen({
+        input,
+        output: "generated",
+      });
+
+      if (typeof plugin.configResolved !== "function") {
+        throw new Error("Expected configResolved hook");
+      }
+      if (typeof plugin.buildStart !== "function") {
+        throw new Error("Expected buildStart hook");
+      }
+
+      await callConfigResolved(plugin, tempRoot, "serve");
+      await expect(
+        plugin.buildStart.call({ error: contextError } as never, {} as never),
+      ).resolves.toBeUndefined();
+      // Vitest fails the run on unhandledRejection, so reaching the assertion
+      // after the throwing hook fired proves the rejection was handled.
       await waitForCall(contextError);
 
       expect(contextError.mock.calls[0]?.[0]).toBeInstanceOf(Error);
@@ -1450,6 +1555,36 @@ function createYamlSpecWithAccessPolicy(): string {
         "    bearerAuth:",
         "      type: http",
         "      scheme: bearer",
+      ].join("\n"),
+    );
+}
+
+function createYamlSpecWithInternalOperation(): string {
+  return createYamlSpecWithAccessPolicy()
+    .replace(
+      "components:",
+      [
+        "  /api/internal/roles:",
+        "    post:",
+        "      operationId: sync_roles",
+        "      security:",
+        "        - internalToken: []",
+        "      responses:",
+        "        '200':",
+        "          description: OK",
+        "      tags:",
+        "        - internal",
+        "components:",
+      ].join("\n"),
+    )
+    .replace(
+      "  securitySchemes:",
+      [
+        "  securitySchemes:",
+        "    internalToken:",
+        "      type: apiKey",
+        "      in: header",
+        "      name: X-Internal-Token",
       ].join("\n"),
     );
 }
