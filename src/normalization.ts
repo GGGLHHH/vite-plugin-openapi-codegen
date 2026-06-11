@@ -41,6 +41,8 @@ export type OpenAPISecurityRequirement = Record<string, string[]>;
 export interface OpenAPISecurityScheme {
   type?: string;
   scheme?: string;
+  in?: string;
+  name?: string;
 }
 
 export interface OpenAPIOperation {

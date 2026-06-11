@@ -210,9 +210,9 @@ function createAccessPolicyEntries(
 // Reverses the backend's policy-to-security mapping. An operation with no
 // security inherits the top-level default; if there is no security anywhere the
 // operation is not access-controlled and produces no policy entry. An explicit
-// empty requirement list is public, an apiKey scheme is the internal callback
-// token, and an http bearer scheme carries roles as scopes (empty = just
-// authenticated).
+// empty requirement list is public. A header apiKey scheme is the internal
+// callback token, while http bearer and cookie apiKey schemes both carry the
+// user session with roles as scopes (empty = just authenticated).
 function readSecurityRequirement(
   entry: OperationEntry,
   securitySchemes: Record<string, OpenAPISecurityScheme> | undefined,
@@ -233,11 +233,11 @@ function readSecurityRequirement(
     throw new Error(`Operation "${entry.operationId}" has an invalid security requirement`);
   }
   for (const [schemeName, scopes] of Object.entries(requirement)) {
-    const type = securitySchemes?.[schemeName]?.type;
-    if (type === "apiKey") {
+    const scheme = securitySchemes?.[schemeName];
+    if (scheme?.type === "apiKey" && scheme.in === "header") {
       return { kind: "internal" };
     }
-    if (type === "http") {
+    if (scheme?.type === "http" || (scheme?.type === "apiKey" && scheme.in === "cookie")) {
       const roles = Array.isArray(scopes)
         ? scopes.filter((scope): scope is string => typeof scope === "string")
         : [];

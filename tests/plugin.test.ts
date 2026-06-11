@@ -92,7 +92,7 @@ describe("vite-plugin-openapi-codegen", () => {
         components: {
           securitySchemes: {
             bearerAuth: { scheme: "bearer", type: "http" },
-            internalToken: { type: "apiKey" },
+            internalToken: { in: "header", type: "apiKey" },
           },
         },
         security: [{ bearerAuth: [] }],
@@ -139,6 +139,66 @@ describe("vite-plugin-openapi-codegen", () => {
     expect(normalizedAccessPolicies).toContain("path: 'admin/projects'");
     expect(normalizedAccessPolicies).toContain("getMe: {");
     expect(normalizedAccessPolicies).toContain("kind: 'authenticated'");
+    expect(normalizedAccessPolicies).toContain("listPublicProjects: {");
+    expect(normalizedAccessPolicies).toContain("kind: 'public'");
+    expectValidTypeScript(files.accessPolicies ?? "", "access-policies.ts");
+  });
+
+  it("treats cookie apiKey schemes as the user session when reading security", () => {
+    const files = renderGeneratedArtifacts(
+      {
+        components: {
+          securitySchemes: {
+            bearerAuth: { in: "cookie", name: "access_token", type: "apiKey" },
+            internalToken: { in: "header", name: "Authorization", type: "apiKey" },
+          },
+        },
+        security: [{ bearerAuth: [] }],
+        paths: {
+          "/api/admin/projects": {
+            get: {
+              operationId: "list-projects",
+              responses: { 200: { description: "OK" } },
+              security: [{ bearerAuth: ["admin", "creator"] }],
+              tags: ["projects"],
+            },
+          },
+          "/api/auth/me": {
+            get: {
+              operationId: "get-me",
+              responses: { 200: { description: "OK" } },
+              tags: ["auth"],
+            },
+          },
+          "/api/internal/roles": {
+            post: {
+              operationId: "sync-roles",
+              responses: { 200: { description: "OK" } },
+              security: [{ internalToken: [] }],
+              tags: ["internal"],
+            },
+          },
+          "/api/public/projects": {
+            get: {
+              operationId: "list-public-projects",
+              responses: { 200: { description: "OK" } },
+              security: [],
+              tags: ["projects"],
+            },
+          },
+        },
+      },
+      {},
+    );
+    const normalizedAccessPolicies = normalizeGeneratedSource(files.accessPolicies ?? "");
+
+    expect(normalizedAccessPolicies).toContain("listProjects: {");
+    expect(normalizedAccessPolicies).toContain("kind: 'role'");
+    expect(normalizedAccessPolicies).toContain("roles: ['admin', 'creator']");
+    expect(normalizedAccessPolicies).toContain("getMe: {");
+    expect(normalizedAccessPolicies).toContain("kind: 'authenticated'");
+    expect(normalizedAccessPolicies).toContain("syncRoles: {");
+    expect(normalizedAccessPolicies).toContain("kind: 'internal'");
     expect(normalizedAccessPolicies).toContain("listPublicProjects: {");
     expect(normalizedAccessPolicies).toContain("kind: 'public'");
     expectValidTypeScript(files.accessPolicies ?? "", "access-policies.ts");
