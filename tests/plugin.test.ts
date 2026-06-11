@@ -197,11 +197,112 @@ describe("vite-plugin-openapi-codegen", () => {
     expect(normalizedAccessPolicies).toContain("roles: ['admin', 'creator']");
     expect(normalizedAccessPolicies).toContain("getMe: {");
     expect(normalizedAccessPolicies).toContain("kind: 'authenticated'");
-    expect(normalizedAccessPolicies).toContain("syncRoles: {");
-    expect(normalizedAccessPolicies).toContain("kind: 'internal'");
+    expect(normalizedAccessPolicies).not.toContain("syncRoles: {");
+    expect(normalizedAccessPolicies).not.toContain("kind: 'internal'");
     expect(normalizedAccessPolicies).toContain("listPublicProjects: {");
     expect(normalizedAccessPolicies).toContain("kind: 'public'");
     expectValidTypeScript(files.accessPolicies ?? "", "access-policies.ts");
+  });
+
+  it("throws when an operation declares multiple security requirements", () => {
+    expect(() =>
+      renderGeneratedArtifacts(createSecuredSpec([{ bearerAuth: [] }, { internalToken: [] }]), {}),
+    ).toThrow('Operation "get-me" declares 2 security requirements');
+  });
+
+  it("throws when a security requirement declares multiple schemes", () => {
+    expect(() =>
+      renderGeneratedArtifacts(createSecuredSpec([{ bearerAuth: [], internalToken: [] }]), {}),
+    ).toThrow('Operation "get-me" declares 2 schemes in one security requirement');
+  });
+
+  it("throws when security scopes are not an array", () => {
+    expect(() =>
+      renderGeneratedArtifacts(createSecuredSpec([{ bearerAuth: "admin" }]), {}),
+    ).toThrow('Operation "get-me" has non-array scopes for security scheme "bearerAuth"');
+  });
+
+  it("throws when security scopes contain a non-string member", () => {
+    expect(() =>
+      renderGeneratedArtifacts(createSecuredSpec([{ bearerAuth: ["admin", 5] }]), {}),
+    ).toThrow('Operation "get-me" has a non-string scope for security scheme "bearerAuth"');
+  });
+
+  it("excludes internal operations from every generated artifact", () => {
+    const files = renderGeneratedArtifacts(
+      {
+        components: {
+          securitySchemes: {
+            bearerAuth: { scheme: "bearer", type: "http" },
+            internalToken: { in: "header", name: "X-Internal-Token", type: "apiKey" },
+          },
+        },
+        security: [{ bearerAuth: [] }],
+        paths: {
+          "/api/admin/projects": {
+            get: {
+              operationId: "list-projects",
+              responses: { 200: { description: "OK" } },
+              security: [{ bearerAuth: ["admin"] }],
+              tags: ["projects"],
+            },
+          },
+          "/api/auth/me": {
+            get: {
+              operationId: "get-me",
+              responses: { 200: { description: "OK" } },
+              tags: ["auth"],
+            },
+          },
+          "/api/internal/roles": {
+            post: {
+              operationId: "sync-roles",
+              responses: { 200: { description: "OK" } },
+              security: [{ internalToken: [] }],
+              tags: ["internal"],
+            },
+          },
+          "/api/public/projects": {
+            get: {
+              operationId: "list-public-projects",
+              responses: { 200: { description: "OK" } },
+              security: [],
+              tags: ["projects"],
+            },
+          },
+        },
+      },
+      {},
+    );
+    const normalizedAccessPolicies = normalizeGeneratedSource(files.accessPolicies ?? "");
+    const normalizedApi = normalizeGeneratedSource(files.api);
+    const normalizedClient = normalizeGeneratedSource(files.client);
+
+    expect(normalizedAccessPolicies).not.toContain("syncRoles");
+    expect(normalizedAccessPolicies).not.toContain("sync-roles");
+    expect(normalizedAccessPolicies).not.toContain("kind: 'internal'");
+    expect(normalizedApi).not.toContain("syncRoles");
+    expect(normalizedApi).not.toContain("internal/roles");
+    expect(normalizedClient).not.toContain("syncRoles");
+    expect(normalizedClient).not.toContain("sync-roles");
+
+    expect(normalizedAccessPolicies).toContain("listProjects: {");
+    expect(normalizedAccessPolicies).toContain("kind: 'role'");
+    expect(normalizedAccessPolicies).toContain("roles: ['admin']");
+    expect(normalizedAccessPolicies).toContain("getMe: {");
+    expect(normalizedAccessPolicies).toContain("kind: 'authenticated'");
+    expect(normalizedAccessPolicies).toContain("listPublicProjects: {");
+    expect(normalizedAccessPolicies).toContain("kind: 'public'");
+    expect(normalizedApi).toContain("export function listProjects(): string {");
+    expect(normalizedApi).toContain("export function getMe(): string {");
+    expect(normalizedApi).toContain("export function listPublicProjects(): string {");
+    expect(normalizedClient).toContain("listProjects");
+    expect(normalizedClient).toContain("getMe");
+    expect(normalizedClient).toContain("listPublicProjects");
+
+    expectValidTypeScript(files.accessPolicies ?? "", "access-policies.ts");
+    expectValidTypeScript(files.api, "api.ts");
+    expectValidTypeScript(files.client, "client.ts");
   });
 
   it("supports custom pathPrefix for filtering and stripping", () => {
@@ -682,6 +783,41 @@ describe("vite-plugin-openapi-codegen", () => {
       await callConfigResolved(plugin, tempRoot, "serve");
       await expect(plugin.buildStart.call({} as never, {} as never)).resolves.toBeUndefined();
       await waitForCall(consoleErrorSpy);
+    } finally {
+      consoleErrorSpy.mockRestore();
+      await closeServer(server);
+      rmSync(tempRoot, { force: true, recursive: true });
+    }
+  });
+
+  it("raises dev generation failures through the plugin context error hook", async () => {
+    const tempRoot = mkdtempSync(resolve(tmpdir(), "openapi-codegen-"));
+    const server = createServer((_, response) => {
+      response.writeHead(503, { "content-type": "text/plain" });
+      response.end("not ready");
+    });
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const contextError = vi.fn();
+
+    try {
+      const input = await listen(server);
+      const plugin = openapiCodegen({
+        input,
+        output: "generated",
+      });
+
+      if (typeof plugin.configResolved !== "function") {
+        throw new Error("Expected configResolved hook");
+      }
+      if (typeof plugin.buildStart !== "function") {
+        throw new Error("Expected buildStart hook");
+      }
+
+      await callConfigResolved(plugin, tempRoot, "serve");
+      await plugin.buildStart.call({ error: contextError } as never, {} as never);
+      await waitForCall(contextError);
+
+      expect(contextError.mock.calls[0]?.[0]).toBeInstanceOf(Error);
     } finally {
       consoleErrorSpy.mockRestore();
       await closeServer(server);
@@ -1316,6 +1452,27 @@ function createYamlSpecWithAccessPolicy(): string {
         "      scheme: bearer",
       ].join("\n"),
     );
+}
+
+function createSecuredSpec(security: unknown): Parameters<typeof renderGeneratedArtifacts>[0] {
+  return {
+    components: {
+      securitySchemes: {
+        bearerAuth: { scheme: "bearer", type: "http" },
+        internalToken: { in: "header", name: "X-Internal-Token", type: "apiKey" },
+      },
+    },
+    paths: {
+      "/api/auth/me": {
+        get: {
+          operationId: "get-me",
+          responses: { 200: { description: "OK" } },
+          security: security as Record<string, string[]>[],
+          tags: ["auth"],
+        },
+      },
+    },
+  };
 }
 
 function createSpec(): Parameters<typeof renderGeneratedArtifacts>[0] {

@@ -188,7 +188,103 @@ export function collectOperations(
     }
   }
 
-  return entries;
+  return excludeInternalOperations(entries, spec);
+}
+
+// Internal operations carry the backend's header apiKey callback token. A
+// browser can never call them, so they are excluded from every generated
+// artifact (access policies, path builders, client functions, and operation
+// type aliases) instead of leaking internal API surface. The filter only runs
+// when securitySchemes context is available; without it no operation can be
+// classified as internal, and specs without any security stay unaffected
+// because readSecurityRequirement returns null for them.
+function excludeInternalOperations(entries: OperationEntry[], spec: OpenAPISpec): OperationEntry[] {
+  const securitySchemes = spec.components?.securitySchemes;
+  if (!securitySchemes) {
+    return entries;
+  }
+
+  return entries.filter(
+    (entry) => readSecurityRequirement(entry, securitySchemes, spec.security)?.kind !== "internal",
+  );
+}
+
+// Reverses the backend's policy-to-security mapping. An operation with no
+// security inherits the top-level default; if there is no security anywhere the
+// operation is not access-controlled and produces no policy entry. An explicit
+// empty requirement list is public. A header apiKey scheme is the internal
+// callback token, while http bearer and cookie apiKey schemes both carry the
+// user session with roles as scopes (empty = just authenticated). The backend
+// contract emits at most one requirement with exactly one scheme and only
+// string scopes, so anything else fails loudly instead of being silently
+// misread as a weaker policy.
+export function readSecurityRequirement(
+  entry: OperationEntry,
+  securitySchemes: Record<string, OpenAPISecurityScheme> | undefined,
+  topLevelSecurity: OpenAPISecurityRequirement[] | undefined,
+): OpenAPIAccessExtension | null {
+  const security = entry.operation.security ?? topLevelSecurity;
+  if (security === undefined) {
+    return null;
+  }
+  if (!Array.isArray(security)) {
+    throw new Error(`Operation "${entry.operationId}" has invalid security`);
+  }
+  if (security.length === 0) {
+    return { kind: "public" };
+  }
+  if (security.length > 1) {
+    throw new Error(
+      `Operation "${entry.operationId}" declares ${security.length} security requirements; the backend contract emits at most one`,
+    );
+  }
+  const requirement = security[0];
+  if (!isRecord(requirement)) {
+    throw new Error(`Operation "${entry.operationId}" has an invalid security requirement`);
+  }
+  const schemeEntries = Object.entries(requirement);
+  if (schemeEntries.length > 1) {
+    throw new Error(
+      `Operation "${entry.operationId}" declares ${schemeEntries.length} schemes in one security requirement; the backend contract emits exactly one`,
+    );
+  }
+  const schemeEntry = schemeEntries[0];
+  if (schemeEntry) {
+    const [schemeName, scopes] = schemeEntry;
+    const scheme = securitySchemes?.[schemeName];
+    if (scheme?.type === "apiKey" && scheme.in === "header") {
+      return { kind: "internal" };
+    }
+    if (scheme?.type === "http" || (scheme?.type === "apiKey" && scheme.in === "cookie")) {
+      const roles = readSecurityScopes(entry, schemeName, scopes);
+      return roles.length === 0 ? { kind: "authenticated" } : { kind: "role", roles };
+    }
+  }
+  throw new Error(`Operation "${entry.operationId}" has an unrecognized security scheme`);
+}
+
+function readSecurityScopes(entry: OperationEntry, schemeName: string, scopes: unknown): string[] {
+  if (!Array.isArray(scopes)) {
+    throw new Error(
+      `Operation "${entry.operationId}" has non-array scopes for security scheme "${schemeName}"`,
+    );
+  }
+
+  const roles: string[] = [];
+  for (const scope of scopes) {
+    if (typeof scope !== "string") {
+      throw new Error(
+        `Operation "${entry.operationId}" has a non-string scope for security scheme "${schemeName}"`,
+      );
+    }
+    roles.push(scope);
+  }
+
+  return roles;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 export function getEffectiveParametersByLocation(

@@ -14,7 +14,6 @@ import {
 import type {
   NormalizedChannel,
   NormalizedTypeReference,
-  OpenAPIAccessExtension,
   OpenAPISecurityRequirement,
   OpenAPISecurityScheme,
   OpenAPISpec,
@@ -24,6 +23,7 @@ import type {
 import {
   buildClientRenderModelFromOperations,
   collectOperations,
+  readSecurityRequirement,
   warnOnParameterLocationMismatch,
 } from "./normalization.ts";
 
@@ -207,50 +207,6 @@ function createAccessPolicyEntries(
   });
 }
 
-// Reverses the backend's policy-to-security mapping. An operation with no
-// security inherits the top-level default; if there is no security anywhere the
-// operation is not access-controlled and produces no policy entry. An explicit
-// empty requirement list is public. A header apiKey scheme is the internal
-// callback token, while http bearer and cookie apiKey schemes both carry the
-// user session with roles as scopes (empty = just authenticated).
-function readSecurityRequirement(
-  entry: OperationEntry,
-  securitySchemes: Record<string, OpenAPISecurityScheme> | undefined,
-  topLevelSecurity: OpenAPISecurityRequirement[] | undefined,
-): OpenAPIAccessExtension | null {
-  const security = entry.operation.security ?? topLevelSecurity;
-  if (security === undefined) {
-    return null;
-  }
-  if (!Array.isArray(security)) {
-    throw new Error(`Operation "${entry.operationId}" has invalid security`);
-  }
-  if (security.length === 0) {
-    return { kind: "public" };
-  }
-  const requirement = security[0];
-  if (!isRecord(requirement)) {
-    throw new Error(`Operation "${entry.operationId}" has an invalid security requirement`);
-  }
-  for (const [schemeName, scopes] of Object.entries(requirement)) {
-    const scheme = securitySchemes?.[schemeName];
-    if (scheme?.type === "apiKey" && scheme.in === "header") {
-      return { kind: "internal" };
-    }
-    if (scheme?.type === "http" || (scheme?.type === "apiKey" && scheme.in === "cookie")) {
-      const roles = Array.isArray(scopes)
-        ? scopes.filter((scope): scope is string => typeof scope === "string")
-        : [];
-      return roles.length === 0 ? { kind: "authenticated" } : { kind: "role", roles };
-    }
-  }
-  throw new Error(`Operation "${entry.operationId}" has an unrecognized security scheme`);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 function resolveChannel(channel: NormalizedChannel, useTypeAliases: boolean): NormalizedChannel {
   if (!channel.typeRef) {
     return channel;
@@ -391,7 +347,9 @@ export function openapiCodegen(options: Options): Plugin {
 
     async buildStart() {
       if (command === "serve" && options.generateOnDev !== false) {
-        void runDevelopmentGeneration(root, options);
+        void runDevelopmentGeneration(root, options, {
+          onError: resolvePluginErrorRaiser(this),
+        });
         return;
       }
 
@@ -414,6 +372,7 @@ export function openapiCodegen(options: Options): Plugin {
 
       console.log("[openapi-codegen] openapi.json changed, regenerating...");
       await runDevelopmentGeneration(root, options, {
+        onError: resolvePluginErrorRaiser(this),
         onSuccess: () => {
           console.log("[openapi-codegen] regeneration complete.");
         },
@@ -422,15 +381,41 @@ export function openapiCodegen(options: Options): Plugin {
   };
 }
 
+interface DevelopmentGenerationHandlers {
+  onError?: (error: Error) => void;
+  onSuccess?: () => void;
+}
+
 async function runDevelopmentGeneration(
   root: string,
   options: Options,
-  handlers?: { onSuccess?: () => void },
+  handlers?: DevelopmentGenerationHandlers,
 ): Promise<void> {
   try {
     await generateOpenAPIArtifacts(root, options);
     handlers?.onSuccess?.();
   } catch (error) {
-    console.error("[openapi-codegen] generation failed during dev mode.", error);
+    const failure = error instanceof Error ? error : new Error(String(error));
+    console.error("[openapi-codegen] generation failed during dev mode.", failure);
+    // Fail loudly instead of letting stale artifacts keep feeding the consumer
+    // silently: `this.error` throws, failing buildStart in build contexts and
+    // surfacing a visible dev-server error in serve contexts. The CLI path
+    // already exits non-zero through main().catch in cli.ts.
+    handlers?.onError?.(failure);
   }
+}
+
+// Hooks can be invoked without a full plugin context (unit tests call them with
+// a bare object); in that case the console.error above remains the signal.
+function resolvePluginErrorRaiser(context: unknown): ((error: Error) => void) | undefined {
+  if (
+    typeof context !== "object" ||
+    context === null ||
+    typeof (context as { error?: unknown }).error !== "function"
+  ) {
+    return undefined;
+  }
+
+  const pluginContext = context as { error: (error: Error) => never };
+  return (error) => pluginContext.error(error);
 }
