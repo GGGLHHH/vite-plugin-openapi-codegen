@@ -48,7 +48,7 @@ interface AstAccessPolicyEntry {
   kind: string;
   methodUpper: string;
   operationId: string;
-  roles: string[];
+  permissions: string[];
   strippedPath: string;
 }
 
@@ -200,11 +200,11 @@ export function renderAccessPoliciesSource(
   const lines = [
     ...generatedHeader,
     "",
-    'export type AccessPolicyKind = "authenticated" | "internal" | "public" | "role";',
+    'export type AccessPolicyKind = "authenticated" | "internal" | "public" | "permission";',
     "",
     "export interface AccessPolicy {",
     "  kind: AccessPolicyKind;",
-    "  roles?: readonly string[];",
+    "  permissions?: readonly string[];",
     "}",
     "",
     "export interface OperationAccessPolicy extends AccessPolicy {",
@@ -224,8 +224,12 @@ export function renderAccessPoliciesSource(
     lines.push(`    method: ${JSON.stringify(entry.methodUpper)},`);
     lines.push(`    operationId: ${JSON.stringify(entry.operationId)},`);
     lines.push(`    path: ${JSON.stringify(entry.strippedPath)},`);
-    if (entry.roles.length > 0) {
-      lines.push(`    roles: [${entry.roles.map((role) => JSON.stringify(role)).join(", ")}],`);
+    if (entry.permissions.length > 0) {
+      lines.push(
+        `    permissions: [${entry.permissions
+          .map((permission) => JSON.stringify(permission))
+          .join(", ")}],`,
+      );
     }
     lines.push("  },");
   }

@@ -29,11 +29,11 @@ export interface OpenAPIResponse {
   description?: string;
 }
 
-export type OpenAPIAccessKind = "authenticated" | "internal" | "public" | "role";
+export type OpenAPIAccessKind = "authenticated" | "internal" | "public" | "permission";
 
 export interface OpenAPIAccessExtension {
   kind: OpenAPIAccessKind;
-  roles?: string[];
+  permissions?: string[];
 }
 
 export type OpenAPISecurityRequirement = Record<string, string[]>;
@@ -277,10 +277,10 @@ export function excludeInternalOperationsFromSpec(spec: OpenAPISpec): {
 // operation is not access-controlled and produces no policy entry. An explicit
 // empty requirement list is public. A header apiKey scheme is the internal
 // callback token, while http bearer and cookie apiKey schemes both carry the
-// user session with roles as scopes (empty = just authenticated). The backend
-// contract emits at most one requirement with exactly one scheme and only
-// string scopes, so anything else fails loudly instead of being silently
-// misread as a weaker policy.
+// user session with the required permissions as scopes (empty = just
+// authenticated). The backend contract emits at most one requirement with
+// exactly one scheme and only string scopes, so anything else fails loudly
+// instead of being silently misread as a weaker policy.
 export function readSecurityRequirement(
   entry: Pick<OperationEntry, "operation" | "operationId">,
   securitySchemes: Record<string, OpenAPISecurityScheme> | undefined,
@@ -319,8 +319,10 @@ export function readSecurityRequirement(
       return { kind: "internal" };
     }
     if (scheme?.type === "http" || (scheme?.type === "apiKey" && scheme.in === "cookie")) {
-      const roles = readSecurityScopes(entry, schemeName, scopes);
-      return roles.length === 0 ? { kind: "authenticated" } : { kind: "role", roles };
+      const permissions = readSecurityScopes(entry, schemeName, scopes);
+      return permissions.length === 0
+        ? { kind: "authenticated" }
+        : { kind: "permission", permissions };
     }
   }
   throw new Error(`Operation "${entry.operationId}" has an unrecognized security scheme`);
@@ -337,17 +339,17 @@ function readSecurityScopes(
     );
   }
 
-  const roles: string[] = [];
+  const permissions: string[] = [];
   for (const scope of scopes) {
     if (typeof scope !== "string") {
       throw new Error(
         `Operation "${entry.operationId}" has a non-string scope for security scheme "${schemeName}"`,
       );
     }
-    roles.push(scope);
+    permissions.push(scope);
   }
 
-  return roles;
+  return permissions;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -210,7 +210,7 @@ function createAccessPolicyEntries(
         kind: accessPolicy.kind,
         methodUpper: entry.method.toUpperCase(),
         operationId: entry.operationId,
-        roles: accessPolicy.roles ?? [],
+        permissions: accessPolicy.permissions ?? [],
         strippedPath: entry.strippedPath,
       },
     ];

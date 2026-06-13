@@ -101,7 +101,7 @@ describe("vite-plugin-openapi-codegen", () => {
             get: {
               operationId: "list-projects",
               responses: { 200: { description: "OK" } },
-              security: [{ bearerAuth: ["admin", "creator"] }],
+              security: [{ bearerAuth: ["project:list", "project:read"] }],
               tags: ["projects"],
             },
           },
@@ -131,8 +131,8 @@ describe("vite-plugin-openapi-codegen", () => {
     expect(normalizedAccessPolicies).toContain("export interface OperationAccessPolicy");
     expect(normalizedAccessPolicies).toContain("export const accessPolicies = {");
     expect(normalizedAccessPolicies).toContain("listProjects: {");
-    expect(normalizedAccessPolicies).toContain("kind: 'role'");
-    expect(normalizedAccessPolicies).toContain("roles: ['admin', 'creator']");
+    expect(normalizedAccessPolicies).toContain("kind: 'permission'");
+    expect(normalizedAccessPolicies).toContain("permissions: ['project:list', 'project:read']");
     expect(normalizedAccessPolicies).toContain("operationId: 'list-projects'");
     expect(normalizedAccessPolicies).toContain("method: 'GET'");
     expect(normalizedAccessPolicies).toContain("apiPath: '/api/admin/projects'");
@@ -159,7 +159,7 @@ describe("vite-plugin-openapi-codegen", () => {
             get: {
               operationId: "list-projects",
               responses: { 200: { description: "OK" } },
-              security: [{ bearerAuth: ["admin", "creator"] }],
+              security: [{ bearerAuth: ["project:list", "project:read"] }],
               tags: ["projects"],
             },
           },
@@ -193,8 +193,8 @@ describe("vite-plugin-openapi-codegen", () => {
     const normalizedAccessPolicies = normalizeGeneratedSource(files.accessPolicies ?? "");
 
     expect(normalizedAccessPolicies).toContain("listProjects: {");
-    expect(normalizedAccessPolicies).toContain("kind: 'role'");
-    expect(normalizedAccessPolicies).toContain("roles: ['admin', 'creator']");
+    expect(normalizedAccessPolicies).toContain("kind: 'permission'");
+    expect(normalizedAccessPolicies).toContain("permissions: ['project:list', 'project:read']");
     expect(normalizedAccessPolicies).toContain("getMe: {");
     expect(normalizedAccessPolicies).toContain("kind: 'authenticated'");
     expect(normalizedAccessPolicies).not.toContain("syncRoles: {");
@@ -243,7 +243,7 @@ describe("vite-plugin-openapi-codegen", () => {
             get: {
               operationId: "list-projects",
               responses: { 200: { description: "OK" } },
-              security: [{ bearerAuth: ["admin"] }],
+              security: [{ bearerAuth: ["project:list"] }],
               tags: ["projects"],
             },
           },
@@ -287,8 +287,8 @@ describe("vite-plugin-openapi-codegen", () => {
     expect(normalizedClient).not.toContain("sync-roles");
 
     expect(normalizedAccessPolicies).toContain("listProjects: {");
-    expect(normalizedAccessPolicies).toContain("kind: 'role'");
-    expect(normalizedAccessPolicies).toContain("roles: ['admin']");
+    expect(normalizedAccessPolicies).toContain("kind: 'permission'");
+    expect(normalizedAccessPolicies).toContain("permissions: ['project:list']");
     expect(normalizedAccessPolicies).toContain("getMe: {");
     expect(normalizedAccessPolicies).toContain("kind: 'authenticated'");
     expect(normalizedAccessPolicies).toContain("listPublicProjects: {");
@@ -774,9 +774,9 @@ describe("vite-plugin-openapi-codegen", () => {
         "utf-8",
       );
       expect(normalizeGeneratedSource(generatedAccessPolicies)).toContain("getRemoteStatus: {");
-      expect(normalizeGeneratedSource(generatedAccessPolicies)).toContain("kind: 'role'");
+      expect(normalizeGeneratedSource(generatedAccessPolicies)).toContain("kind: 'permission'");
       expect(normalizeGeneratedSource(generatedAccessPolicies)).toContain(
-        "roles: ['admin', 'creator']",
+        "permissions: ['project:list', 'project:read']",
       );
     } finally {
       rmSync(tempRoot, { force: true, recursive: true });
@@ -1542,8 +1542,8 @@ function createYamlSpecWithAccessPolicy(): string {
       [
         "      security:",
         "        - bearerAuth:",
-        "            - admin",
-        "            - creator",
+        '            - "project:list"',
+        '            - "project:read"',
         "      responses:",
       ].join("\n"),
     )
