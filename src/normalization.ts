@@ -276,11 +276,15 @@ export function excludeInternalOperationsFromSpec(spec: OpenAPISpec): {
 // security inherits the top-level default; if there is no security anywhere the
 // operation is not access-controlled and produces no policy entry. An explicit
 // empty requirement list is public. A header apiKey scheme is the internal
-// callback token, while http bearer and cookie apiKey schemes both carry the
-// user session with the required permissions as scopes (empty = just
-// authenticated). The backend contract emits at most one requirement with
-// exactly one scheme and only string scopes, so anything else fails loudly
-// instead of being silently misread as a weaker policy.
+// callback token, while http bearer, cookie apiKey, and oauth2/openIdConnect
+// schemes all carry the user session with the required permissions as scopes
+// (empty = just authenticated). oauth2/openIdConnect is the OpenAPI-standard way
+// to attach scopes to an operation (scopes are only meaningful on those scheme
+// types); a backend that documents its JWT login as an oauth2 flow lands here
+// with the same scopes-as-permissions semantics as the session schemes. The
+// backend contract emits at most one requirement with exactly one scheme and
+// only string scopes, so anything else fails loudly instead of being silently
+// misread as a weaker policy.
 export function readSecurityRequirement(
   entry: Pick<OperationEntry, "operation" | "operationId">,
   securitySchemes: Record<string, OpenAPISecurityScheme> | undefined,
@@ -318,7 +322,12 @@ export function readSecurityRequirement(
     if (scheme?.type === "apiKey" && scheme.in === "header") {
       return { kind: "internal" };
     }
-    if (scheme?.type === "http" || (scheme?.type === "apiKey" && scheme.in === "cookie")) {
+    if (
+      scheme?.type === "http" ||
+      scheme?.type === "oauth2" ||
+      scheme?.type === "openIdConnect" ||
+      (scheme?.type === "apiKey" && scheme.in === "cookie")
+    ) {
       const permissions = readSecurityScopes(entry, schemeName, scopes);
       return permissions.length === 0
         ? { kind: "authenticated" }

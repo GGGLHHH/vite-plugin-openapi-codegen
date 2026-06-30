@@ -204,6 +204,59 @@ describe("vite-plugin-openapi-codegen", () => {
     expectValidTypeScript(files.accessPolicies ?? "", "access-policies.ts");
   });
 
+  it("treats oauth2 schemes as the user session with scopes-as-permissions (standard OpenAPI)", () => {
+    const files = renderGeneratedArtifacts(
+      {
+        components: {
+          // OpenAPI-standard: scopes are only meaningful on oauth2/openIdConnect,
+          // so a backend that documents permissions does it through an oauth2 flow.
+          securitySchemes: {
+            oauth2: { type: "oauth2" },
+          },
+        },
+        // No top-level security: requirements are per-operation (like baserust).
+        paths: {
+          "/api/widgets": {
+            get: {
+              operationId: "list-widgets",
+              responses: { 200: { description: "OK" } },
+              security: [{ oauth2: ["widgets:read"] }],
+              tags: ["widgets"],
+            },
+          },
+          "/api/auth/me": {
+            get: {
+              operationId: "get-me",
+              responses: { 200: { description: "OK" } },
+              security: [{ oauth2: [] }],
+              tags: ["auth"],
+            },
+          },
+          "/api/auth/login": {
+            post: {
+              operationId: "login",
+              responses: { 200: { description: "OK" } },
+              tags: ["auth"],
+            },
+          },
+        },
+      },
+      {},
+    );
+    const normalizedAccessPolicies = normalizeGeneratedSource(files.accessPolicies ?? "");
+
+    // oauth2 scopes -> permission (previously threw "unrecognized security scheme").
+    expect(normalizedAccessPolicies).toContain("listWidgets: {");
+    expect(normalizedAccessPolicies).toContain("kind: 'permission'");
+    expect(normalizedAccessPolicies).toContain("permissions: ['widgets:read']");
+    // empty oauth2 scopes -> just authenticated.
+    expect(normalizedAccessPolicies).toContain("getMe: {");
+    expect(normalizedAccessPolicies).toContain("kind: 'authenticated'");
+    // omitted security + no top-level default -> not access-controlled (no entry).
+    expect(normalizedAccessPolicies).not.toContain("login: {");
+    expectValidTypeScript(files.accessPolicies ?? "", "access-policies.ts");
+  });
+
   it("throws when an operation declares multiple security requirements", () => {
     expect(() =>
       renderGeneratedArtifacts(createSecuredSpec([{ bearerAuth: [] }, { internalToken: [] }]), {}),
