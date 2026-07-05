@@ -34,6 +34,8 @@ export type OpenAPIAccessKind = "authenticated" | "internal" | "public" | "permi
 export interface OpenAPIAccessExtension {
   kind: OpenAPIAccessKind;
   permissions?: string[];
+  /** OR of AND-groups (one group per security requirement). Present instead of `permissions`. */
+  anyOf?: string[][];
 }
 
 export type OpenAPISecurityRequirement = Record<string, string[]>;
@@ -281,10 +283,16 @@ export function excludeInternalOperationsFromSpec(spec: OpenAPISpec): {
 // (empty = just authenticated). oauth2/openIdConnect is the OpenAPI-standard way
 // to attach scopes to an operation (scopes are only meaningful on those scheme
 // types); a backend that documents its JWT login as an oauth2 flow lands here
-// with the same scopes-as-permissions semantics as the session schemes. The
-// backend contract emits at most one requirement with exactly one scheme and
-// only string scopes, so anything else fails loudly instead of being silently
-// misread as a weaker policy.
+// with the same scopes-as-permissions semantics as the session schemes.
+//
+// Requirement combinators follow the OpenAPI spec: scopes inside one
+// requirement are ANDed (all required -> `permissions`), and multiple
+// requirements are ORed (any one grants access -> `anyOf`, one AND-group per
+// branch). Every OR branch must be a session scheme with at least one scope —
+// an internal branch or an empty-scope branch would silently collapse the
+// whole policy to "internal token"/"any authenticated user", so those fail
+// loudly instead of being misread as a weaker policy. Each requirement still
+// names exactly one scheme with only string scopes.
 export function readSecurityRequirement(
   entry: Pick<OperationEntry, "operation" | "operationId">,
   securitySchemes: Record<string, OpenAPISecurityScheme> | undefined,
@@ -300,12 +308,40 @@ export function readSecurityRequirement(
   if (security.length === 0) {
     return { kind: "public" };
   }
-  if (security.length > 1) {
-    throw new Error(
-      `Operation "${entry.operationId}" declares ${security.length} security requirements; the backend contract emits at most one`,
-    );
+  if (security.length === 1) {
+    const branch = readRequirementBranch(entry, securitySchemes, security[0]);
+    if (branch.kind === "internal") {
+      return { kind: "internal" };
+    }
+    return branch.scopes.length === 0
+      ? { kind: "authenticated" }
+      : { kind: "permission", permissions: branch.scopes };
   }
-  const requirement = security[0];
+  const anyOf = security.map((requirement) => {
+    const branch = readRequirementBranch(entry, securitySchemes, requirement);
+    if (branch.kind === "internal") {
+      throw new Error(
+        `Operation "${entry.operationId}" mixes the internal scheme into an OR security requirement; internal must be the only requirement`,
+      );
+    }
+    if (branch.scopes.length === 0) {
+      throw new Error(
+        `Operation "${entry.operationId}" has an empty-scope branch in an OR security requirement; that would collapse the policy to "any authenticated user"`,
+      );
+    }
+    return branch.scopes;
+  });
+  return { kind: "permission", anyOf };
+}
+
+type RequirementBranch = { kind: "internal" } | { kind: "session"; scopes: string[] };
+
+// One security requirement -> internal marker or session scopes (the AND-group).
+function readRequirementBranch(
+  entry: Pick<OperationEntry, "operation" | "operationId">,
+  securitySchemes: Record<string, OpenAPISecurityScheme> | undefined,
+  requirement: unknown,
+): RequirementBranch {
   if (!isRecord(requirement)) {
     throw new Error(`Operation "${entry.operationId}" has an invalid security requirement`);
   }
@@ -328,10 +364,7 @@ export function readSecurityRequirement(
       scheme?.type === "openIdConnect" ||
       (scheme?.type === "apiKey" && scheme.in === "cookie")
     ) {
-      const permissions = readSecurityScopes(entry, schemeName, scopes);
-      return permissions.length === 0
-        ? { kind: "authenticated" }
-        : { kind: "permission", permissions };
+      return { kind: "session", scopes: readSecurityScopes(entry, schemeName, scopes) };
     }
   }
   throw new Error(`Operation "${entry.operationId}" has an unrecognized security scheme`);

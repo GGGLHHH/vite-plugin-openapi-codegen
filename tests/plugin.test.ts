@@ -257,10 +257,39 @@ describe("vite-plugin-openapi-codegen", () => {
     expectValidTypeScript(files.accessPolicies ?? "", "access-policies.ts");
   });
 
-  it("throws when an operation declares multiple security requirements", () => {
+  it("reads multiple security requirements as OR access policies (anyOf)", () => {
+    // Mirrors baserust's widget_overview: [{oauth2:[read]},{oauth2:[admin]}] = read OR admin.
+    const files = renderGeneratedArtifacts(
+      createSecuredSpec([{ bearerAuth: ["widgets:read"] }, { bearerAuth: ["users:admin"] }]),
+      {},
+    );
+    const normalizedAccessPolicies = normalizeGeneratedSource(files.accessPolicies ?? "");
+
+    expect(normalizedAccessPolicies).toContain("getMe: {");
+    expect(normalizedAccessPolicies).toContain("kind: 'permission'");
+    expect(normalizedAccessPolicies).toContain("anyOf: [['widgets:read'], ['users:admin']]");
+    // OR policies carry anyOf only; flat permissions stays reserved for the AND shape.
+    expect(normalizedAccessPolicies).not.toContain("permissions: [");
+    expect(normalizedAccessPolicies).toContain("anyOf?: readonly (readonly string[])[]");
+    expectValidTypeScript(files.accessPolicies ?? "", "access-policies.ts");
+  });
+
+  it("throws when an OR security requirement mixes in the internal scheme", () => {
     expect(() =>
-      renderGeneratedArtifacts(createSecuredSpec([{ bearerAuth: [] }, { internalToken: [] }]), {}),
-    ).toThrow('Operation "get-me" declares 2 security requirements');
+      renderGeneratedArtifacts(
+        createSecuredSpec([{ bearerAuth: ["widgets:read"] }, { internalToken: [] }]),
+        {},
+      ),
+    ).toThrow('Operation "get-me" mixes the internal scheme into an OR security requirement');
+  });
+
+  it("throws when an OR security requirement has an empty-scope branch", () => {
+    expect(() =>
+      renderGeneratedArtifacts(
+        createSecuredSpec([{ bearerAuth: ["widgets:read"] }, { bearerAuth: [] }]),
+        {},
+      ),
+    ).toThrow('Operation "get-me" has an empty-scope branch in an OR security requirement');
   });
 
   it("throws when a security requirement declares multiple schemes", () => {

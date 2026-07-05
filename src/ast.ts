@@ -43,6 +43,7 @@ interface AstHttpClientConfig {
 }
 
 interface AstAccessPolicyEntry {
+  anyOf?: string[][];
   apiPath: string;
   funcName: string;
   kind: string;
@@ -202,9 +203,13 @@ export function renderAccessPoliciesSource(
     "",
     'export type AccessPolicyKind = "authenticated" | "internal" | "public" | "permission";',
     "",
+    "// Grant check: anyOf ? anyOf.some((group) => group.every(has)) : (permissions ?? []).every(has)",
     "export interface AccessPolicy {",
     "  kind: AccessPolicyKind;",
+    "  /** All required (AND). Absent when `anyOf` is present. */",
     "  permissions?: readonly string[];",
+    "  /** OR of AND-groups: any fully-held group grants access. */",
+    "  anyOf?: readonly (readonly string[])[];",
     "}",
     "",
     "export interface OperationAccessPolicy extends AccessPolicy {",
@@ -228,6 +233,13 @@ export function renderAccessPoliciesSource(
       lines.push(
         `    permissions: [${entry.permissions
           .map((permission) => JSON.stringify(permission))
+          .join(", ")}],`,
+      );
+    }
+    if (entry.anyOf && entry.anyOf.length > 0) {
+      lines.push(
+        `    anyOf: [${entry.anyOf
+          .map((group) => `[${group.map((permission) => JSON.stringify(permission)).join(", ")}]`)
           .join(", ")}],`,
       );
     }

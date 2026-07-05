@@ -7,6 +7,7 @@ The plugin reads your OpenAPI JSON or YAML spec, runs `openapi-typescript`, and 
 - `api-types.d.ts` for raw OpenAPI-derived types
 - `api.ts` for path builder functions
 - `client.ts` for typed request helpers
+- `access-policies.ts` for per-operation access policies, when the spec declares security — scopes in one requirement are ANDed (`permissions`), multiple requirements are ORed (`anyOf`, one AND-group per branch); grant check: `anyOf ? anyOf.some((g) => g.every(has)) : permissions.every(has)`
 
 It also regenerates local input specs through Vite HMR when the spec changes. In dev mode, generation runs in the background so Vite can finish starting even if the remote spec is temporarily unavailable. Online `http://` and `https://` inputs are fetched once when Vite starts. Build mode skips the plugin entirely. For manual generation, the package also ships a `vg` CLI that reads your local `vite.config.*` and runs the same generator once.
 

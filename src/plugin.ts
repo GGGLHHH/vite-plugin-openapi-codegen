@@ -205,6 +205,7 @@ function createAccessPolicyEntries(
     }
     return [
       {
+        anyOf: accessPolicy.anyOf,
         apiPath: entry.apiPath,
         funcName: entry.funcName,
         kind: accessPolicy.kind,
