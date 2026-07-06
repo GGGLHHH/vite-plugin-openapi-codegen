@@ -86,6 +86,18 @@ describe("vite-plugin-openapi-codegen", () => {
     expectValidTypeScript(files.client, "client.ts");
   });
 
+  it("keeps empty-string query params, omitting only null/undefined", () => {
+    const files = renderGeneratedArtifacts(createSpec(), {});
+
+    // buildSearchParams must treat "" as a real value the API contract owns
+    // (e.g. an empty cursor seed = first keyset page), not collapse it into
+    // "absent". Only null/undefined mean "no parameter".
+    expect(files.client).toContain("function buildSearchParams(");
+    expect(files.client).not.toContain('value === ""');
+    expect(files.client).not.toContain('item === ""');
+    expectValidTypeScript(files.client, "client.ts");
+  });
+
   it("generates access policy artifacts from security requirements", () => {
     const files = renderGeneratedArtifacts(
       {

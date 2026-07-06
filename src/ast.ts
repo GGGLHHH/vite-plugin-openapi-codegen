@@ -606,19 +606,15 @@ function createBuildSearchParamsFunction(): ts.FunctionDeclaration {
   const valueIdentifier = ts.factory.createIdentifier("value");
   const itemIdentifier = ts.factory.createIdentifier("item");
 
-  const isNullishOrEmptyString = (identifier: ts.Identifier) =>
+  // Omit only absent params (null/undefined). An empty string is a real value
+  // the API contract owns — e.g. an empty `cursor` seeds the first keyset page —
+  // so the client must not collapse "" into "absent". Callers signal "no param"
+  // by passing undefined.
+  const isNullish = (identifier: ts.Identifier) =>
     ts.factory.createBinaryExpression(
-      ts.factory.createBinaryExpression(
-        identifier,
-        ts.factory.createToken(ts.SyntaxKind.EqualsEqualsToken),
-        ts.factory.createNull(),
-      ),
-      ts.factory.createToken(ts.SyntaxKind.BarBarToken),
-      ts.factory.createBinaryExpression(
-        identifier,
-        ts.factory.createToken(ts.SyntaxKind.EqualsEqualsEqualsToken),
-        ts.factory.createStringLiteral(""),
-      ),
+      identifier,
+      ts.factory.createToken(ts.SyntaxKind.EqualsEqualsToken),
+      ts.factory.createNull(),
     );
 
   const assignHasParamsTrue = () =>
@@ -700,7 +696,7 @@ function createBuildSearchParamsFunction(): ts.FunctionDeclaration {
           ts.factory.createBlock(
             [
               ts.factory.createIfStatement(
-                isNullishOrEmptyString(valueIdentifier),
+                isNullish(valueIdentifier),
                 ts.factory.createContinueStatement(),
               ),
               ts.factory.createIfStatement(
@@ -724,7 +720,7 @@ function createBuildSearchParamsFunction(): ts.FunctionDeclaration {
                       ts.factory.createBlock(
                         [
                           ts.factory.createIfStatement(
-                            isNullishOrEmptyString(itemIdentifier),
+                            isNullish(itemIdentifier),
                             ts.factory.createContinueStatement(),
                           ),
                           ts.factory.createExpressionStatement(
